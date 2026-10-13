@@ -15,7 +15,6 @@ explains the files, finds the rot and writes the docs your README never got arou
 [![Express 5](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-node%3Asqlite-003B57?logo=sqlite&logoColor=white)](https://nodejs.org/api/sqlite.html)
 [![Tests](https://img.shields.io/badge/acceptance_tests-119%20checks-3fb950)](#testing)
-[![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 [![Made by](https://custom-icon-badges.demolab.com/badge/made%20by-Psudhanshu--07-181717?logo=github&logoColor=white)](https://github.com/Psudhanshu-07)
 
 </div>
