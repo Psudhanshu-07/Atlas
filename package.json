@@ -1,17 +1,17 @@
 {
   "name": "codeatlas",
   "version": "1.0.0",
-  "description": "CodeAtlas — AI codebase intelligence engine: import a repo, map its architecture, visualise dependencies, explain code, detect inconsistencies, generate docs.",
+  "description": "CodeAtlas \u2014 AI codebase intelligence engine: import a repo, map its architecture, visualise dependencies, explain code, detect inconsistencies, generate docs.",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
-    "dev:client": "vite",
+    "dev:server": "tsx watch backend/server/index.ts",
+    "dev:client": "vite --config frontend/vite.config.ts frontend",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/isolation.test.ts",
-    "build": "tsc --noEmit && vite build",
-    "start": "tsx server/index.ts"
+    "test": "tsx backend/tests/isolation.test.ts",
+    "build": "tsc --noEmit && vite build --config frontend/vite.config.ts frontend",
+    "start": "tsx backend/server/index.ts"
   },
   "dependencies": {
     "d3-force": "^3.0.0",
