@@ -48,7 +48,7 @@ export interface ConfigPayload {
  * against a Render API), the build gets VITE_API_BASE and calls cross-origin
  * with credentials, which the server allows when CODEATLAS_FRONTEND_URL matches.
  */
-const API_BASE = String(import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+const API_BASE = String(import.meta.env.VITE_API_BASE ?? import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
 /** A running (or finished) analysis, polled until it settles. */
 export type Job = JobSnapshot;
