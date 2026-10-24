@@ -174,10 +174,21 @@ async function makePostgres(url: string): Promise<DbDriver> {
   try {
     await pool.query("SELECT 1");
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     await pool.end().catch(() => undefined);
+    // Dual-stack connect attempts wrap the inner failure in an AggregateError
+    // whose top-level message is empty — the error the user would see would
+    // read "DATABASE_URL is unreachable: ." and name no cause. Unwrap the
+    // first attempt so the banner says ECONNREFUSED/ENOTFOUND/ETIMEDOUT and
+    // points at the real problem (wrong port, paused project, bad host).
+    const wrapper = err as NodeJS.ErrnoException & { errors?: unknown[] };
+    const first: NodeJS.ErrnoException | undefined =
+      wrapper.errors && wrapper.errors.length > 0 && wrapper.errors[0] instanceof Error
+        ? (wrapper.errors[0] as NodeJS.ErrnoException)
+        : (err instanceof Error ? (err as NodeJS.ErrnoException) : undefined);
+    const code = first?.code ?? wrapper.code;
+    const message = first?.message || (err instanceof Error ? err.message : String(err));
     throw new Error(
-      `DATABASE_URL is unreachable: ${message}. Check the Supabase connection string (Project Settings → Database).`,
+      `DATABASE_URL is unreachable${code ? ` (${code})` : ""}: ${message}. Check the Supabase connection string (Project Settings → Database).`,
     );
   }
 
