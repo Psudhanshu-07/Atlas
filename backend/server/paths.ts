@@ -1,6 +1,7 @@
 // Filesystem locations used by the server: data root, repository checkouts and
-// the SQLite file. Kept separate so `repos.ts` and `db.ts` can share them
-// without importing each other.
+// the embedded-Postgres data directory (local mode, when DATABASE_URL is
+// unset). Kept separate so `repos.ts` and `db.ts` can share them without
+// importing each other.
 
 import * as path from "node:path";
 import { loadEnvFile } from "./env";
@@ -24,5 +25,8 @@ export const REPOS_DIR = path.join(DATA_DIR, "repos");
 /** Pre-auth flat-file cache. Imported into the database once, then read-only. */
 export const CACHE_DIR = path.join(DATA_DIR, "cache");
 
-/** SQLite database file: accounts, sessions, per-user analyses. */
-export const DB_FILE = path.join(DATA_DIR, "codeatlas.db");
+/**
+ * Embedded Postgres data directory (local mode). Production connects through
+ * `DATABASE_URL` (Supabase) and touches nothing here.
+ */
+export const PG_DIR = path.join(DATA_DIR, "pg");

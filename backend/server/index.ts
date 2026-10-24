@@ -29,6 +29,39 @@ import type { ApiError } from "../../shared/types";
 
 const app = express();
 
+// Behind Render's reverse proxy (and any other TLS-terminating host) the app
+// must trust X-Forwarded-Proto, or cookie policies and redirect URIs read as
+// plain HTTP and break session security on the first real request.
+app.set("trust proxy", 1);
+
+// Split deployments: when CODEATLAS_FRONTEND_URL points the web client at this
+// API from a different origin (for example Vercel serving the SPA against a
+// Render service), calls are cross-origin and cookies need explicit consent.
+// Same-origin deployments (the default) need none of this.
+const frontendUrl = process.env.CODEATLAS_FRONTEND_URL?.trim().replace(/\/$/, "");
+if (frontendUrl) {
+  const allowed = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+    const origin = String(req.headers.origin ?? "");
+    if (origin && origin === frontendUrl) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
+      next();
+      return;
+    }
+    // Foreign origins read as "no API here" rather than a CORS listing.
+    res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+  };
+  app.use("/api", allowed);
+  app.options("/api", (_req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", frontendUrl);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
+    res.sendStatus(204);
+  });
+}
+
 // Baseline hardening — cheap, and they do not interfere with the SPA.
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -156,25 +189,25 @@ app.get("/api/jobs/:id", requireAuth, (req, res) => {
   });
 });
 
-app.get("/api/analyses", requireAuth, (req, res) => {
+app.get("/api/analyses", requireAuth, async (req, res) => {
   try {
-    res.json({ analyses: listAnalysesFor(req.user!.id) });
+    res.json({ analyses: await listAnalysesFor(req.user!.id) });
   } catch (err) {
     fail(res, 500, err);
   }
 });
 
-app.get("/api/dashboard", requireAuth, (req, res) => {
+app.get("/api/dashboard", requireAuth, async (req, res) => {
   try {
-    res.json(dashboardFor(req.user!.id));
+    res.json(await dashboardFor(req.user!.id));
   } catch (err) {
     fail(res, 500, err);
   }
 });
 
-app.get("/api/analyses/:id", requireAuth, (req, res) => {
+app.get("/api/analyses/:id", requireAuth, async (req, res) => {
   try {
-    const analysis = loadAnalysisFor(req.user!.id, req.params.id);
+    const analysis = await loadAnalysisFor(req.user!.id, req.params.id);
     if (!analysis) {
       res.status(404).json({ error: "Analysis not found — run an analysis first." } satisfies ApiError);
       return;
@@ -185,9 +218,9 @@ app.get("/api/analyses/:id", requireAuth, (req, res) => {
   }
 });
 
-app.delete("/api/analyses/:id", requireAuth, (req, res) => {
+app.delete("/api/analyses/:id", requireAuth, async (req, res) => {
   try {
-    const ok = deleteAnalysisFor(req.user!.id, req.params.id);
+    const ok = await deleteAnalysisFor(req.user!.id, req.params.id);
     if (!ok) {
       res.status(404).json({ error: "Analysis not found." } satisfies ApiError);
       return;
@@ -200,7 +233,7 @@ app.delete("/api/analyses/:id", requireAuth, (req, res) => {
 
 app.get("/api/analyses/:id/file", requireAuth, async (req, res) => {
   try {
-    const analysis = loadAnalysisFor(req.user!.id, req.params.id);
+    const analysis = await loadAnalysisFor(req.user!.id, req.params.id);
     if (!analysis) {
       res.status(404).json({ error: "Analysis not found." } satisfies ApiError);
       return;
@@ -230,17 +263,17 @@ registerChatRoutes(app, requireAuth);
 
 /* -------------------------------------------------------------- preferences */
 
-app.get("/api/preferences", requireAuth, (req, res) => {
-  res.json({ theme: themeFor(req.user!.id) });
+app.get("/api/preferences", requireAuth, async (req, res) => {
+  res.json({ theme: await themeFor(req.user!.id) });
 });
 
-app.post("/api/preferences", requireAuth, (req, res) => {
+app.post("/api/preferences", requireAuth, async (req, res) => {
   const theme = req.body?.theme === "light" ? "light" : req.body?.theme === "dark" ? "dark" : null;
   if (!theme) {
     res.status(400).json({ error: "theme must be \"dark\" or \"light\"." } satisfies ApiError);
     return;
   }
-  setThemeFor(req.user!.id, theme);
+  await setThemeFor(req.user!.id, theme);
   res.json({ theme });
 });
 

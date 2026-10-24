@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { api } from "../../api";
 import type { AuthProviders } from "../../state/useWorkspace";
 
 interface Props {
@@ -38,7 +39,7 @@ function GithubButton() {
   return (
     <a
       id="github-oauth-btn"
-      href="/api/auth/github"
+      href={api.githubOAuthUrl()}
       className="w-full h-11 px-4 text-white rounded-lg flex items-center justify-center gap-3 font-semibold text-[14px] cursor-pointer transition-all duration-150 group shadow-sm hover:border-[#8b949e]"
       style={{ backgroundColor: "#21262d", border: "1px solid #363b42" }}
     >

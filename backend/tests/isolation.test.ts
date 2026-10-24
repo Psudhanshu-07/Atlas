@@ -38,7 +38,10 @@ const DATA_DIR = path.join(PROJECT_ROOT, ".tmp", `test-atlas-${process.pid}`);
 
 // The tarball check imports server modules in *this* process — point its data
 // directory at the isolated one before any dynamic import below loads db.ts.
+// DATABASE_URL is pinned to the empty string so the suite exercises the
+// embedded local Postgres (PGlite) even when the host has a Supabase URL set.
 process.env.CODEATLAS_DATA_DIR = DATA_DIR;
+process.env.DATABASE_URL = "";
 
 const VERBOSE = Boolean(process.env.VERBOSE);
 
@@ -79,11 +82,16 @@ interface RawReply {
 class Session {
   cookie: string | null = null;
 
-  async request<T = any>(method: string, urlPath: string, body?: unknown): Promise<Reply<T>> {
+  async request<T = any>(
+    method: string,
+    urlPath: string,
+    body?: unknown,
+    opts: { base?: string } = {},
+  ): Promise<Reply<T>> {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["content-type"] = "application/json";
     if (this.cookie) headers.cookie = this.cookie;
-    const res = await fetch(BASE + urlPath, {
+    const res = await fetch((opts.base ?? BASE) + urlPath, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -180,7 +188,7 @@ function startStubGithub(): Promise<http.Server> {
 type Db = typeof import("../../backend/server/db");
 let db: Db;
 
-const sessionTokens: Record<"alice" | "bob", string> = { alice: "", bob: "" };
+const sessionTokens: Record<string, string> = { alice: "", bob: "" };
 
 function sha256(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -190,13 +198,13 @@ function sha256(value: string): string {
 async function seedAccounts(): Promise<{ aliceId: number; bobId: number }> {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   db = await import("../../backend/server/db");
-  const aliceRow = db.insertUser({
+  const aliceRow = await db.insertUser({
     email: "alice@isolation.test",
     name: "Alice Anders",
     githubId: "1001",
     githubLogin: "alice-gh",
   });
-  const bobRow = db.insertUser({
+  const bobRow = await db.insertUser({
     email: "bob@isolation.test",
     name: "Bob Builder",
     githubId: "1002",
@@ -206,10 +214,10 @@ async function seedAccounts(): Promise<{ aliceId: number; bobId: number }> {
 }
 
 /** Mint a session row and point the matching HTTP client at its cookie. */
-function mintSession(who: "alice" | "bob", userId: number, client: Session): void {
+async function mintSession(who: string, userId: number, client: Session): Promise<void> {
   const token = crypto.randomBytes(32).toString("base64url");
   sessionTokens[who] = token;
-  db.createSession(userId, sha256(token), Date.now() + 60 * 60_000, `isolation-test-${who}`);
+  await db.createSession(userId, sha256(token), Date.now() + 60 * 60_000, `isolation-test-${who}`);
   client.cookie = `ca_sid=${token}`;
 }
 
@@ -270,6 +278,7 @@ function startServer(): ChildProcess {
       // (503 from the OAuth start endpoint) regardless of the host environment.
       GITHUB_CLIENT_ID: "",
       GITHUB_CLIENT_SECRET: "",
+      DATABASE_URL: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -282,6 +291,36 @@ function startServer(): ChildProcess {
 /* ------------------------------------------------------------------- main */
 
 async function main(): Promise<void> {
+  // Phase A (no server yet): seed the accounts and the two sessions directly
+  // through the persistence layer. PGlite data directories allow one writer
+  // process, so every direct-DB step happens before the server (or any other
+  // process) opens the same directory.
+  section("Seeded accounts and hashed sessions");
+  const seeded = await seedAccounts();
+  await mintSession("alice", seeded.aliceId, alice);
+  await mintSession("bob", seeded.bobId, bob);
+  // A second, never-issued alice session, minted while the fixture still owns
+  // the directory: PGlite allows a single writer process per data directory, so
+  // once the server opens it the fixture can no longer insert a session row
+  // directly. The post-logout section walks alice back to this token instead.
+  await mintSession("alice-refresh", seeded.aliceId, new Session());
+  const rawToken = sessionTokens.alice;
+  const rawRows = await db.rawQuery<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM sessions WHERE token_hash = ?",
+    [rawToken],
+  );
+  const hashRows = await db.rawQuery<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM sessions WHERE token_hash = ?",
+    [sha256(rawToken)],
+  );
+  check(
+    "session tokens are stored hashed, never raw",
+    rawRows[0]?.n === 0 && hashRows[0]?.n === 1,
+    `raw matches: ${rawRows[0]?.n}, hash matches: ${hashRows[0]?.n}`,
+  );
+  // Release the embedded database so the server process can take the directory.
+  await db.closeDb();
+
   const server = startServer();
   const stubGithub = await startStubGithub();
   let tarballImport: typeof import("../../backend/server/repos") | null = null;
@@ -307,9 +346,6 @@ async function main(): Promise<void> {
 
     /* -------------------------------- 2. password accounts + hashed sessions */
     section("E-mail + password sign-up/sign-in and server-minted sessions");
-    const seeded = await seedAccounts();
-    mintSession("alice", seeded.aliceId, alice);
-    mintSession("bob", seeded.bobId, bob);
 
     check("providers endpoint is public (200)", (await anon.request("GET", "/api/auth/providers")).status === 200);
     // A dedicated client so the anonymous session keeps its clean cookie.
@@ -393,11 +429,6 @@ async function main(): Promise<void> {
     check("first account is admin", meAlice.body?.user?.isAdmin === true);
     const meBob = await bob.request("GET", "/api/auth/me");
     check("second account is not admin", meBob.status === 200 && meBob.body?.user?.isAdmin === false);
-    const rawRows = db
-      .getDb()
-      .prepare("SELECT COUNT(*) AS n FROM sessions WHERE token_hash = ?")
-      .get(sessionTokens.alice) as unknown as { n: number };
-    check("session tokens are stored hashed, not raw", rawRows.n === 0);
     check(
       "repository access is reported as not granted",
       meAlice.body?.user?.reposGranted === false,
@@ -412,6 +443,30 @@ async function main(): Promise<void> {
     section("GitHub sign-in creates the session (stubbed GitHub)");
     // The child server runs without credentials, so the round-trip needs a
     // second instance that has them and points at the stub endpoints.
+    // Seed the OAuth server's directory while no process holds it. Carol must
+    // land in a workspace that already has an admin (so a late GitHub sign-in
+    // stays non-admin), and every PGlite directory stays single-writer: seed it
+    // in a one-shot child, closed, then hand the directory to the child server.
+    const oauthDataDir = DATA_DIR + "-oauth";
+    fs.rmSync(oauthDataDir, { recursive: true, force: true });
+    fs.mkdirSync(oauthDataDir, { recursive: true });
+    const oauthSeed = spawnSync(
+      process.execPath,
+      ["node_modules/tsx/dist/cli.mjs", "backend/tests/fixtures/seed-db.ts"],
+      {
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, CODEATLAS_DATA_DIR: oauthDataDir, DATABASE_URL: "" },
+        input: JSON.stringify({
+          email: "alice@isolation.test",
+          name: "Alice Anders",
+          githubId: "1001",
+          githubLogin: "alice-gh",
+        }),
+        encoding: "utf8",
+      },
+    );
+    check("oauth workspace seeded with an admin", oauthSeed.status === 0, oauthSeed.stderr?.trim());
+
     const oauthChild = spawn(
       process.execPath,
       ["node_modules/tsx/dist/cli.mjs", "backend/server/index.ts"],
@@ -420,7 +475,11 @@ async function main(): Promise<void> {
         env: {
           ...process.env,
           PORT: String(PORT + 2),
-          CODEATLAS_DATA_DIR: DATA_DIR,
+          // Own data directory (single-writer, PGlite); the fixture seeded it
+          // through the persistence layer above, so the workspace already has
+          // an admin when carol signs in late.
+          CODEATLAS_DATA_DIR: DATA_DIR + "-oauth",
+          DATABASE_URL: "",
           GITHUB_CLIENT_ID: "stub-client-id",
           GITHUB_CLIENT_SECRET: "stub-client-secret",
           CODEATLAS_GITHUB_WEB_URL: `http://127.0.0.1:${STUB_PORT}`,
@@ -491,7 +550,7 @@ async function main(): Promise<void> {
         `${ok.status} ${ok.location}`,
       );
       check("the OAuth flow issued a session cookie", carol.cookie !== null);
-      const me = await carol.request("GET", "/api/auth/me");
+      const me = await carol.request("GET", "/api/auth/me", undefined, { base: oauthBase });
       check(
         "session resolves to the GitHub identity",
         me.status === 200 &&
@@ -504,7 +563,7 @@ async function main(): Promise<void> {
         "a late GitHub sign-in is not the admin",
         me.body?.user?.isAdmin === false,
       );
-      const carolRepos = await carol.request("GET", "/api/github/repos");
+      const carolRepos = await carol.request("GET", "/api/github/repos", undefined, { base: oauthBase });
       check(
         "identity-only grant never returns the repository list",
         carolRepos.status !== 200 || !Array.isArray(carolRepos.body?.repos),
@@ -868,8 +927,10 @@ async function main(): Promise<void> {
     const logout = await alice.request("POST", "/api/auth/logout");
     check("alice logs out (200)", logout.status === 200);
     check("alice's cookie is dead → 401", (await alice.request("GET", "/api/analyses")).status === 401);
-    // The browser would run the OAuth flow again; here we mint a fresh session.
-    mintSession("alice", seeded.aliceId, alice);
+    // The browser would run the OAuth flow again; the server now owns the data
+    // directory, so the fixture resumes on the refresh session minted in
+    // phase A (logout revokes only the token it was called with).
+    alice.cookie = `ca_sid=${sessionTokens["alice-refresh"]}`;
     const meAgain = await alice.request("GET", "/api/auth/me");
     check(
       "a fresh session resolves to the same account",
@@ -926,7 +987,7 @@ async function main(): Promise<void> {
     try {
       // Close this process's own handle (opened when server/repos was imported
       // for the tarball check) so the temp directory can be removed on Windows.
-      (await import("../../backend/server/db")).getDb().close();
+      (await import("../../backend/server/db")).closeDb();
     } catch (err) {
       console.warn("db close warning:", err instanceof Error ? err.message : err);
     }

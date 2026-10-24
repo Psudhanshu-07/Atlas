@@ -72,37 +72,48 @@ function isHttps(req: Request): boolean {
   return req.secure || forwarded === "https";
 }
 
+/**
+ * Cookie policy for the session. Same-origin deployments (the SPA served by
+ * this server) default to SameSite=Lax. When the API is called from a separate
+ * origin (CODEATLAS_FRONTEND_URL, e.g. a Vercel frontend against a Render
+ * backend), the browser only sends the cookie when it says SameSite=None and
+ * rides on HTTPS — the pairing is enforced, never one without the other.
+ */
+function cookieAttributes(req: Request): string[] {
+  const crossSite = Boolean(process.env.CODEATLAS_FRONTEND_URL?.trim());
+  const parts = ["Path=/", "HttpOnly"];
+  if (crossSite) {
+    if (isHttps(req)) parts.push("SameSite=None", "Secure");
+  } else {
+    parts.push("SameSite=Lax");
+    if (isHttps(req)) parts.push("Secure");
+  }
+  return parts;
+}
+
 function setCookie(res: Response, cookie: string): void {
   res.setHeader("Set-Cookie", cookie);
 }
 
-function issueSession(req: Request, res: Response, userId: number): void {
+async function issueSession(req: Request, res: Response, userId: number): Promise<void> {
   const token = crypto.randomBytes(32).toString("base64url");
   const agent = String(req.headers["user-agent"] ?? "").slice(0, 200);
-  db.createSession(userId, sha256(token), Date.now() + SESSION_TTL_MS, agent || null);
-  const parts = [
-    `${SESSION_COOKIE}=${token}`,
-    "Path=/",
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-    "HttpOnly",
-    "SameSite=Lax",
-  ];
-  if (isHttps(req)) parts.push("Secure");
+  await db.createSession(userId, sha256(token), Date.now() + SESSION_TTL_MS, agent || null);
+  const parts = [`${SESSION_COOKIE}=${token}`, ...cookieAttributes(req), `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`];
   setCookie(res, parts.join("; "));
 }
 
 function clearSessionCookie(req: Request, res: Response): void {
-  const parts = [`${SESSION_COOKIE}=`, "Path=/", "Max-Age=0", "HttpOnly", "SameSite=Lax"];
-  if (isHttps(req)) parts.push("Secure");
+  const parts = [`${SESSION_COOKIE}=`, "Max-Age=0", ...cookieAttributes(req)];
   setCookie(res, parts.join("; "));
 }
 
-function currentSession(req: Request): { sessionId: number; user: db.UserRow } | null {
+async function currentSession(req: Request): Promise<{ sessionId: number; user: db.UserRow } | null> {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   if (!token) return null;
-  const found = db.findSessionUser(sha256(token));
+  const found = await db.findSessionUser(sha256(token));
   if (!found) return null;
-  if (Date.now() - found.lastSeenAt > SESSION_TOUCH_INTERVAL_MS) db.touchSession(found.sessionId);
+  if (Date.now() - found.lastSeenAt > SESSION_TOUCH_INTERVAL_MS) await db.touchSession(found.sessionId);
   return { sessionId: found.sessionId, user: found.user };
 }
 
@@ -111,8 +122,8 @@ function currentSession(req: Request): { sessionId: number; user: db.UserRow } |
 // `RequestHandler<any>` (rather than the default params type) matters: with a
 // stricter middleware type TypeScript falls back to a wider route overload and
 // `req.params.id` becomes `string | string[]` at every call site.
-export const requireAuth: RequestHandler<any> = (req, res, next) => {
-  const session = currentSession(req);
+export const requireAuth: RequestHandler<any> = async (req, res, next): Promise<void> => {
+  const session = await currentSession(req);
   if (!session) {
     res.status(401).json({ error: "Sign in to continue." } satisfies ApiError);
     return;
@@ -182,32 +193,32 @@ function appBaseUrl(req: Request): string {
  * e-mail GitHub has *verified* (equivalent to proving mailbox ownership), else
  * create a new account.
  */
-function upsertGithubAccount(profile: GithubProfile): db.UserRow {
+async function upsertGithubAccount(profile: GithubProfile): Promise<db.UserRow> {
   // `insertUser` makes the first account on the server the admin; this env var
   // pins the role to one address instead, for installs that sign in elsewhere first.
   const adminEmail = (process.env.CODEATLAS_ADMIN_EMAIL ?? "").trim().toLowerCase();
   const pinnedAdmin = adminEmail !== "" && adminEmail === profile.email.trim().toLowerCase();
 
-  const byGithub = db.findUserByGithubId(profile.id);
+  const byGithub = await db.findUserByGithubId(profile.id);
   if (byGithub) {
-    db.linkGithub(byGithub.id, {
+    await db.linkGithub(byGithub.id, {
       githubId: profile.id,
       githubLogin: profile.login,
       avatarUrl: profile.avatarUrl,
     });
-    return db.refreshUser(byGithub.id) ?? byGithub;
+    return (await db.refreshUser(byGithub.id)) ?? byGithub;
   }
 
   // A GitHub-verified address is proof of ownership, so it can adopt an
   // existing row (e.g. an account renamed on GitHub).
-  const byEmail = profile.emailVerified ? db.findUserByEmail(profile.email) : null;
+  const byEmail = profile.emailVerified ? await db.findUserByEmail(profile.email) : null;
   if (byEmail) {
-    db.linkGithub(byEmail.id, {
+    await db.linkGithub(byEmail.id, {
       githubId: profile.id,
       githubLogin: profile.login,
       avatarUrl: profile.avatarUrl,
     });
-    return db.refreshUser(byEmail.id) ?? byEmail;
+    return (await db.refreshUser(byEmail.id)) ?? byEmail;
   }
 
   return db.insertUser({
@@ -226,9 +237,14 @@ function safeReturnPath(value: unknown): string {
   return value;
 }
 
-/** Where the OAuth flow lands after GitHub: a short-lived status query the shell consumes. */
+/**
+ * Where the OAuth flow lands after GitHub: a short-lived status query the shell
+ * consumes. Split deployments send the browser back to the web client's origin
+ * (it does not live on this server), everything else returns to this one.
+ */
 function oauthReturn(base: string, status: string): string {
-  return `${base}/?github=${encodeURIComponent(status)}`;
+  const origin = process.env.CODEATLAS_FRONTEND_URL?.trim().replace(/\/$/, "");
+  return `${origin || base}/?github=${encodeURIComponent(status)}`;
 }
 
 /* ------------------------------------------------------------------- routes */
@@ -275,7 +291,7 @@ export function registerAuthRoutes(app: Express): void {
   /* --------------------------------------------- e-mail + password accounts */
 
   /** Create an account with e-mail + password and sign straight in. */
-  app.post("/api/auth/register", (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     if (!allow(`register:${req.ip ?? "?"}`, 10, 60 * 60_000)) {
       jsonError(res, 429, "Too many sign-up attempts. Try again later.");
       return;
@@ -292,12 +308,12 @@ export function registerAuthRoutes(app: Express): void {
       jsonError(res, 400, pwProblem);
       return;
     }
-    if (db.findUserByEmail(email)) {
+    if (await db.findUserByEmail(email)) {
       jsonError(res, 409, "An account with this e-mail already exists. Sign in instead.");
       return;
     }
     const salt = crypto.randomBytes(16).toString("hex");
-    const created = db.insertUser({
+    const created = await db.insertUser({
       email,
       name,
       passwordHash: hashPassword(password as string, salt),
@@ -305,30 +321,30 @@ export function registerAuthRoutes(app: Express): void {
       // The first account still becomes the workspace admin.
       isAdmin: false,
     });
-    issueSession(req, res, created.id);
-    res.json({ user: db.toSessionUser(created, db.githubRepoAccess(created.id)) });
+    await issueSession(req, res, created.id);
+    res.json({ user: db.toSessionUser(created, await db.githubRepoAccess(created.id)) });
   });
 
   /** Sign in to an existing e-mail + password account. */
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     if (!allow(`login:${req.ip ?? "?"}`, 20, 15 * 60_000)) {
       jsonError(res, 429, "Too many sign-in attempts. Try again in a few minutes.");
       return;
     }
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const password = typeof req.body?.password === "string" ? req.body.password : "";
-    const user = email ? db.findUserByEmail(email) : null;
-    const credential = user ? db.passwordCredential(user.id) : null;
+    const user = email ? await db.findUserByEmail(email) : null;
+    const credential = user ? await db.passwordCredential(user.id) : null;
     if (!user || !credential || !safeEqualHex(credential.hash, hashPassword(password, credential.salt))) {
       jsonError(res, 401, "Wrong e-mail or password.");
       return;
     }
-    issueSession(req, res, user.id);
-    res.json({ user: db.toSessionUser(user, db.githubRepoAccess(user.id)) });
+    await issueSession(req, res, user.id);
+    res.json({ user: db.toSessionUser(user, await db.githubRepoAccess(user.id)) });
   });
 
   /** Change the password of an e-mail account (GitHub-only accounts have none). */
-  app.post("/api/auth/password", requireAuth, (req, res) => {
+  app.post("/api/auth/password", requireAuth, async (req, res) => {
     const current = typeof req.body?.current === "string" ? req.body.current : "";
     const next = req.body?.next;
     const problem = passwordProblem(next);
@@ -336,7 +352,7 @@ export function registerAuthRoutes(app: Express): void {
       jsonError(res, 400, problem);
       return;
     }
-    const credential = db.passwordCredential(req.user!.id);
+    const credential = await db.passwordCredential(req.user!.id);
     if (!credential) {
       jsonError(
         res,
@@ -350,7 +366,7 @@ export function registerAuthRoutes(app: Express): void {
       return;
     }
     const salt = crypto.randomBytes(16).toString("hex");
-    db.setPassword(req.user!.id, hashPassword(next as string, salt), salt);
+    await db.setPassword(req.user!.id, hashPassword(next as string, salt), salt);
     res.json({ ok: true });
   });
 
@@ -358,12 +374,12 @@ export function registerAuthRoutes(app: Express): void {
    * Disconnect the GitHub integration: forgets the stored OAuth token, so
    * repository access is revoked. Refused when GitHub is the only way back in.
    */
-  app.post("/api/auth/github/disconnect", requireAuth, (req, res) => {
-    if (!db.findUserById(req.user!.id)?.github_id) {
+  app.post("/api/auth/github/disconnect", requireAuth, async (req, res) => {
+    if (!(await db.findUserById(req.user!.id))?.github_id) {
       jsonError(res, 400, "No GitHub account is connected.");
       return;
     }
-    if (!db.passwordCredential(req.user!.id)) {
+    if (!(await db.passwordCredential(req.user!.id))) {
       jsonError(
         res,
         400,
@@ -371,26 +387,28 @@ export function registerAuthRoutes(app: Express): void {
       );
       return;
     }
-    db.deleteGithubToken(req.user!.id);
+    await db.deleteGithubToken(req.user!.id);
     res.json({ ok: true });
   });
 
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", async (req, res) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    if (token) db.deleteSession(sha256(token));
+    if (token) await db.deleteSession(sha256(token));
     clearSessionCookie(req, res);
     res.json({ ok: true });
   });
 
   /** Boot probe: the current session, or null. Always 200, never an error. */
-  app.get("/api/auth/me", (req, res) => {
-    const session = currentSession(req);
+  app.get("/api/auth/me", async (req, res) => {
+    const session = await currentSession(req);
     res.json({
-      user: session ? db.toSessionUser(session.user, db.githubRepoAccess(session.user.id)) : null,
+      user: session
+        ? db.toSessionUser(session.user, await db.githubRepoAccess(session.user.id))
+        : null,
     });
   });
 
-  app.post("/api/auth/profile", requireAuth, (req, res) => {
+  app.post("/api/auth/profile", requireAuth, async (req, res) => {
     const name = readName(req.body?.name, "");
     const bio = typeof req.body?.bio === "string" ? req.body.bio.trim().slice(0, 300) : undefined;
     const role = typeof req.body?.role === "string" ? req.body.role.trim().slice(0, 60) : undefined;
@@ -401,9 +419,9 @@ export function registerAuthRoutes(app: Express): void {
     const patch: { name: string; bio?: string | null; role?: string | null } = { name };
     if (bio !== undefined) patch.bio = bio || null;
     if (role !== undefined) patch.role = role || null;
-    db.updateProfile(req.user!.id, patch);
-    const user = db.refreshUser(req.user!.id);
-    res.json({ user: user ? db.toSessionUser(user, db.githubRepoAccess(user.id)) : null });
+    await db.updateProfile(req.user!.id, patch);
+    const user = await db.refreshUser(req.user!.id);
+    res.json({ user: user ? db.toSessionUser(user, await db.githubRepoAccess(user.id)) : null });
   });
 
   /* ---------------------------------------------------- profile photo (avatar) */
@@ -415,7 +433,7 @@ export function registerAuthRoutes(app: Express): void {
     limits: { fileSize: 2 * 1024 * 1024 },
   });
 
-  app.post("/api/auth/avatar", requireAuth, avatarUpload.single("image"), (req, res) => {
+  app.post("/api/auth/avatar", requireAuth, avatarUpload.single("image"), async (req, res) => {
     const file = req.file;
     if (!file) {
       jsonError(res, 400, "Choose an image to upload.");
@@ -435,13 +453,13 @@ export function registerAuthRoutes(app: Express): void {
       fs.copyFileSync(file.path, target);
       fs.unlinkSync(file.path);
     }
-    db.updateProfile(req.user!.id, { avatarUrl: `/avatars/${storedName}` });
-    const user = db.refreshUser(req.user!.id);
-    res.json({ user: user ? db.toSessionUser(user, db.githubRepoAccess(user.id)) : null });
+    await db.updateProfile(req.user!.id, { avatarUrl: `/avatars/${storedName}` });
+    const user = await db.refreshUser(req.user!.id);
+    res.json({ user: user ? db.toSessionUser(user, await db.githubRepoAccess(user.id)) : null });
   });
 
-  app.delete("/api/auth/avatar", requireAuth, (req, res) => {
-    const previous = db.findUserById(req.user!.id)?.avatar_url;
+  app.delete("/api/auth/avatar", requireAuth, async (req, res) => {
+    const previous = (await db.findUserById(req.user!.id))?.avatar_url;
     if (previous?.startsWith("/avatars/")) {
       const name = previous.slice("/avatars/".length);
       if (/^[A-Za-z0-9._-]+$/.test(name)) {
@@ -452,13 +470,13 @@ export function registerAuthRoutes(app: Express): void {
         }
       }
     }
-    db.updateProfile(req.user!.id, { avatarUrl: null });
-    const user = db.refreshUser(req.user!.id);
-    res.json({ user: user ? db.toSessionUser(user, db.githubRepoAccess(user.id)) : null });
+    await db.updateProfile(req.user!.id, { avatarUrl: null });
+    const user = await db.refreshUser(req.user!.id);
+    res.json({ user: user ? db.toSessionUser(user, await db.githubRepoAccess(user.id)) : null });
   });
 
-  app.get("/api/auth/sessions", requireAuth, (req, res) => {
-    const sessions = db.listSessionsFor(req.user!.id).map((s) => ({
+  app.get("/api/auth/sessions", requireAuth, async (req, res) => {
+    const sessions = (await db.listSessionsFor(req.user!.id)).map((s) => ({
       id: s.id,
       createdAt: new Date(s.created_at).toISOString(),
       lastSeenAt: new Date(s.last_seen_at).toISOString(),
@@ -469,16 +487,16 @@ export function registerAuthRoutes(app: Express): void {
     res.json({ sessions });
   });
 
-  app.delete("/api/auth/sessions", requireAuth, (req, res) => {
-    for (const s of db.listSessionsFor(req.user!.id)) {
-      if (s.id !== req.sessionId) db.deleteSessionFor(req.user!.id, s.id);
+  app.delete("/api/auth/sessions", requireAuth, async (req, res) => {
+    for (const s of await db.listSessionsFor(req.user!.id)) {
+      if (s.id !== req.sessionId) await db.deleteSessionFor(req.user!.id, s.id);
     }
     res.json({ ok: true });
   });
 
-  app.delete("/api/auth/sessions/:id", requireAuth, (req, res) => {
+  app.delete("/api/auth/sessions/:id", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
-    const ok = Number.isInteger(id) && db.deleteSessionFor(req.user!.id, id);
+    const ok = Number.isInteger(id) && (await db.deleteSessionFor(req.user!.id, id));
     if (!ok) {
       jsonError(res, 404, "Session not found.");
       return;
@@ -504,9 +522,11 @@ export function registerAuthRoutes(app: Express): void {
     const scopes = req.query.scopes === "repos" ? SCOPES_REPOS : SCOPES_IDENTITY;
     const state = crypto.randomBytes(16).toString("base64url");
     const to = safeReturnPath(req.query.to);
-    const parts = [`${OAUTH_COOKIE}=${state}:${encodeURIComponent(to)}`, "Path=/", `Max-Age=${OAUTH_STATE_TTL_MS / 1000}`, "HttpOnly", "SameSite=Lax"];
-    if (isHttps(req)) parts.push("Secure");
-    setCookie(res, parts.join("; "));
+    // The state cookie rides a top-level navigation to GitHub and back. It
+    // follows the same policy as the session cookie: in split deployments the
+    // browser only stores it with SameSite=None on HTTPS.
+    const parts = [...cookieAttributes(req), `Max-Age=${Math.floor(OAUTH_STATE_TTL_MS / 1000)}`];
+    setCookie(res, `${OAUTH_COOKIE}=${state}:${encodeURIComponent(to)}; ${parts.join("; ")}`);
 
     const redirectUri = `${appBaseUrl(req)}/api/auth/github/callback`;
     const url = new URL(`${githubWebBase()}/login/oauth/authorize`);
@@ -533,9 +553,9 @@ export function registerAuthRoutes(app: Express): void {
       const redirectUri = `${base}/api/auth/github/callback`;
       const { token, scopes } = await exchangeCode(code, redirectUri);
       const profile = await fetchProfile(token);
-      const user = upsertGithubAccount(profile);
-      db.saveGithubToken(user.id, token, scopes);
-      issueSession(req, res, user.id);
+      const user = await upsertGithubAccount(profile);
+      await db.saveGithubToken(user.id, token, scopes);
+      await issueSession(req, res, user.id);
       res.redirect(oauthReturn(base, scopes.includes("repo") ? "repos" : "signed-in"));
     } catch (err) {
       console.warn("[auth] GitHub OAuth failed:", err instanceof Error ? err.message : err);
@@ -547,7 +567,7 @@ export function registerAuthRoutes(app: Express): void {
   /* -------------------------------------------------- connected repository list */
 
   app.get("/api/github/repos", requireAuth, async (req, res) => {
-    const stored = db.loadGithubToken(req.user!.id);
+    const stored = await db.loadGithubToken(req.user!.id);
     if (!stored) {
       jsonError(res, 400, "Grant repository access to this app first.");
       return;

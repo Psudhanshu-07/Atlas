@@ -298,7 +298,7 @@ export function RepositoryConnection({
             </div>
             <a
               className="font-code-compact text-code-compact text-secondary hover:underline flex items-center gap-1"
-              href="/api/auth/github"
+              href={api.githubOAuthUrl()}
             >
               Grant access to additional repositories →
             </a>
@@ -328,7 +328,7 @@ export function RepositoryConnection({
                 </div>
                 <a
                   className="h-7 px-2.5 inline-flex items-center gap-1.5 rounded border border-surface-variant bg-surface-container hover:bg-surface-container-high text-on-surface font-body-bold text-body-compact transition-colors shrink-0"
-                  href="/api/auth/github"
+                  href={api.githubOAuthUrl()}
                 >
                   <span className="material-symbols-outlined text-[15px]">key</span>
                   <span>Grant access</span>

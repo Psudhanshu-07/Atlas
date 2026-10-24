@@ -42,6 +42,14 @@ export interface ConfigPayload {
   maxDepth?: number;
 }
 
+/**
+ * API origin. Same-origin deployments (the server serving the built client)
+ * call relative URLs as before; when the client is hosted separately (Vercel
+ * against a Render API), the build gets VITE_API_BASE and calls cross-origin
+ * with credentials, which the server allows when CODEATLAS_FRONTEND_URL matches.
+ */
+const API_BASE = String(import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+
 /** A running (or finished) analysis, polled until it settles. */
 export type Job = JobSnapshot;
 
@@ -58,9 +66,9 @@ export interface SessionInfo {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await fetch(API_BASE + url, { ...init, credentials: "include" });
   } catch {
-    throw new Error("Cannot reach the Atlas API. Is the server running on port 3001?");
+    throw new Error("Cannot reach the Atlas API. Check that the API server is running (locally: `npm run dev`).");
   }
   const json = (await res.json().catch(() => ({}))) as T | ApiError;
   if (!res.ok) {
@@ -143,9 +151,9 @@ export const api = {
   /** Revoke the stored GitHub token (repository access). */
   disconnectGithub: () => request<{ ok: boolean }>("/api/auth/github/disconnect", { method: "POST" }),
 
-  /** Start the GitHub OAuth flow; navigates the browser away. */
+  /** Start the GitHub OAuth flow; navigates the browser away (may be cross-origin). */
   githubOAuthUrl: (opts: { scopes?: "identity" | "repos" } = {}) =>
-    `/api/auth/github${opts.scopes === "repos" ? "?scopes=repos" : ""}`,
+    API_BASE + `/api/auth/github${opts.scopes === "repos" ? "?scopes=repos" : ""}`,
 
   githubRepos: () => request<{ repos: GithubRepo[]; scopes: string }>("/api/github/repos"),
 

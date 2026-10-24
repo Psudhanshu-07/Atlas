@@ -232,7 +232,8 @@ async function cloneGithub(target: GithubTarget, refresh: boolean, ownerUserId?:
   // Connected accounts (token present) fetch through the API into a per-user
   // checkout: private content never lands in a path another account can reach.
   // Anonymous callers use the shared git clone below: public repositories only.
-  const token = ownerUserId != null ? (loadGithubToken(ownerUserId)?.token ?? null) : null;
+  const token =
+    ownerUserId != null ? ((await loadGithubToken(ownerUserId))?.token ?? null) : null;
   const dir = token ? path.join(REPOS_DIR, `${id}-u${ownerUserId}`) : path.join(REPOS_DIR, id);
 
   const marker = path.join(dir, ".codeatlas-checkout");

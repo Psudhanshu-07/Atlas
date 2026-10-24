@@ -72,7 +72,7 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
       return;
     }
     const userId = req.user!.id;
-    const analysis = loadAnalysisFor(userId, req.params.id);
+    const analysis = await loadAnalysisFor(userId, req.params.id);
     if (!analysis) {
       jsonError(res, 404, "Analysis not found.");
       return;
@@ -82,7 +82,7 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
     const clientMsgId =
       typeof req.body?.clientMsgId === "string" ? req.body.clientMsgId.slice(0, 64) : null;
 
-    let conversation = requestedId ? db.findConversationRow(userId, requestedId) : null;
+    let conversation = requestedId ? await db.findConversationRow(userId, requestedId) : null;
     if (requestedId && !conversation) {
       jsonError(res, 404, "Conversation not found.");
       return;
@@ -97,7 +97,7 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
     // only as a legacy fallback for in-flight conversations.
     let history: Array<{ role: "user" | "assistant"; content: string }> | undefined;
     if (conversation) {
-      const stored = db.listChatMessageRows(conversation.id).slice(-8);
+      const stored = (await db.listChatMessageRows(conversation.id)).slice(-8);
       history = stored.map((m) => ({ role: m.role, content: m.content }));
     } else if (Array.isArray(req.body?.history)) {
       history = req.body.history
@@ -118,21 +118,21 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
     const answer = await askQuestion(analysis, analysis.repo.rootPath, question, history);
 
     if (!conversation) {
-      conversation = db.insertConversation(userId, analysis.repo.id, titleFromQuestion(question));
+      conversation = await db.insertConversation(userId, analysis.repo.id, titleFromQuestion(question));
     }
-    db.insertChatMessage(conversation.id, {
+    await db.insertChatMessage(conversation.id, {
       role: "user",
       content: question,
       clientMsgId,
     });
-    db.insertChatMessage(conversation.id, {
+    await db.insertChatMessage(conversation.id, {
       role: "assistant",
       content: answer.answer,
       sources: answer.sources,
       mode: answer.mode,
       clientMsgId: clientMsgId ? `${clientMsgId}:a` : null,
     });
-    db.touchConversationRow(conversation.id);
+    await db.touchConversationRow(conversation.id);
 
     res.json({ ...answer, conversationId: conversation.id });
   } catch (err) {
@@ -147,34 +147,37 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
  */
 export function registerChatRoutes(app: Express, requireAuth: RequestHandler<any>): void {
   /** List the caller's conversations (optionally scoped/searched). */
-  app.get("/api/chats", requireAuth, (req, res) => {
+  app.get("/api/chats", requireAuth, async (req, res) => {
     const analysisId = typeof req.query.analysisId === "string" ? req.query.analysisId : undefined;
     const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : undefined;
-    const conversations = db
-      .listConversationRows(req.user!.id, { analysisId, query })
-      .map(conversationJson);
+    const conversations = (await db.listConversationRows(req.user!.id, { analysisId, query })).map(
+      conversationJson,
+    );
     res.json({ conversations });
   });
 
   /** Download the caller's own chat history as JSON. */
-  app.get("/api/chats/export", requireAuth, (req, res) => {
-    const conversations = db.listConversationRows(req.user!.id, { limit: 200 }).map((c) => ({
-      ...conversationJson(c),
-      messages: db.listChatMessageRows(c.id).map(messageJson),
-    }));
+  app.get("/api/chats/export", requireAuth, async (req, res) => {
+    const conversations: Array<Record<string, unknown>> = [];
+    for (const c of await db.listConversationRows(req.user!.id, { limit: 200 })) {
+      conversations.push({
+        ...conversationJson(c),
+        messages: (await db.listChatMessageRows(c.id)).map(messageJson),
+      });
+    }
     res.setHeader("Content-Disposition", 'attachment; filename="atlas-chat-history.json"');
     res.json({ exportedAt: new Date().toISOString(), conversations });
   });
 
   /** Create an empty conversation (the UI usually lets the ask route make it). */
-  app.post("/api/chats", requireAuth, (req, res) => {
+  app.post("/api/chats", requireAuth, async (req, res) => {
     const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
     const analysisId = typeof req.body?.analysisId === "string" ? req.body.analysisId : null;
     if (!title) {
       jsonError(res, 400, "A title is required.");
       return;
     }
-    const created = db.insertConversation(req.user!.id, analysisId, title);
+    const created = await db.insertConversation(req.user!.id, analysisId, title);
     res.status(201).json({
       conversation: {
         id: created.id,
@@ -188,43 +191,41 @@ export function registerChatRoutes(app: Express, requireAuth: RequestHandler<any
   });
 
   /** One conversation with its full message list. */
-  app.get("/api/chats/:id", requireAuth, (req, res) => {
-    const conversation = db.findConversationRow(req.user!.id, Number(req.params.id));
+  app.get("/api/chats/:id", requireAuth, async (req, res) => {
+    const conversation = await db.findConversationRow(req.user!.id, Number(req.params.id));
     if (!conversation) {
       jsonError(res, 404, "Conversation not found.");
       return;
     }
-    const messages = db
-      .listChatMessageRows(conversation.id)
-      .map(messageJson);
+    const messages = (await db.listChatMessageRows(conversation.id)).map(messageJson);
     const messageCount = messages.length;
     res.json({ conversation: { ...conversationJson({ ...conversation, message_count: messageCount }), messages } });
   });
 
   /** Rename a conversation. */
-  app.patch("/api/chats/:id", requireAuth, (req, res) => {
+  app.patch("/api/chats/:id", requireAuth, async (req, res) => {
     const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
     if (!title) {
       jsonError(res, 400, "A title is required.");
       return;
     }
     const id = Number(req.params.id);
-    const ok = db.renameConversationRow(req.user!.id, id, title);
+    const ok = await db.renameConversationRow(req.user!.id, id, title);
     if (!ok) {
       jsonError(res, 404, "Conversation not found.");
       return;
     }
-    const updated = db.findConversationRow(req.user!.id, id);
+    const updated = await db.findConversationRow(req.user!.id, id);
     res.json({
       conversation: updated
-        ? conversationJson({ ...updated, message_count: db.listChatMessageRows(id).length })
+        ? conversationJson({ ...updated, message_count: (await db.listChatMessageRows(id)).length })
         : null,
     });
   });
 
   /** Delete one conversation (messages cascade). */
-  app.delete("/api/chats/:id", requireAuth, (req, res) => {
-    const ok = db.deleteConversationRow(req.user!.id, Number(req.params.id));
+  app.delete("/api/chats/:id", requireAuth, async (req, res) => {
+    const ok = await db.deleteConversationRow(req.user!.id, Number(req.params.id));
     if (!ok) {
       jsonError(res, 404, "Conversation not found.");
       return;
@@ -233,8 +234,8 @@ export function registerChatRoutes(app: Express, requireAuth: RequestHandler<any
   });
 
   /** Delete every conversation the caller owns (Data & Privacy section). */
-  app.delete("/api/chats", requireAuth, (req, res) => {
-    const deleted = db.deleteAllConversationRows(req.user!.id);
+  app.delete("/api/chats", requireAuth, async (req, res) => {
+    const deleted = await db.deleteAllConversationRows(req.user!.id);
     res.json({ deleted });
   });
 }

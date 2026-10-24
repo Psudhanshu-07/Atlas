@@ -121,7 +121,7 @@ async function runAnalysis(
   };
 
   try {
-    saveAnalysisFor(ownerUserId, analysis);
+    await saveAnalysisFor(ownerUserId, analysis);
   } catch (err) {
     // The analysis is still returned to the owner; persistence failure is loud, not silent.
     console.error("[analyze] Could not persist analysis for owner", ownerUserId, err);
@@ -137,7 +137,7 @@ async function loadCached(
 ): Promise<{ analysis: Analysis; cached: boolean } | null> {
   try {
     const { repo } = await resolveSource(source, false, branch, ownerUserId);
-    const cached = loadAnalysisFor(ownerUserId, repo.id);
+    const cached = await loadAnalysisFor(ownerUserId, repo.id);
     if (cached?.repo.rootPath) {
       const stillThere = await fs
         .stat(cached.repo.rootPath)
