@@ -39,27 +39,39 @@ app.set("trust proxy", 1);
 // Render service), calls are cross-origin and cookies need explicit consent.
 // Same-origin deployments (the default) need none of this.
 const frontendUrl = process.env.CODEATLAS_FRONTEND_URL?.trim().replace(/\/$/, "");
+const ALLOW_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 if (frontendUrl) {
   const allowed = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
     const origin = String(req.headers.origin ?? "");
-    if (origin && origin === frontendUrl) {
+    // Only a named foreign origin is refused. Requests without an Origin header
+    // are not CORS-monitored at all — top-level navigations (the OAuth callback
+    // redirect) and non-browser clients — so passing them through keeps those
+    // flows working without opening the API to web pages on other origins.
+    if (origin && origin !== frontendUrl) {
+      // Foreign origins read as "no API here" rather than a CORS listing.
+      res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+      return;
+    }
+    // Preflight must be answered for every nested /api route, not just /api
+    // itself: a browser blocks the real request (e.g. POST /api/auth/login)
+    // the moment its OPTIONS probe 404s, surfacing as "Cannot reach the API".
+    if (req.method === "OPTIONS" && origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("Access-Control-Allow-Methods", ALLOW_METHODS);
+      res.setHeader("Access-Control-Max-Age", "600");
+      res.sendStatus(204);
+      return;
+    }
+    if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Vary", "Origin");
-      next();
-      return;
     }
-    // Foreign origins read as "no API here" rather than a CORS listing.
-    res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+    next();
   };
   app.use("/api", allowed);
-  app.options("/api", (_req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", frontendUrl);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
-    res.sendStatus(204);
-  });
 }
 
 // Baseline hardening — cheap, and they do not interfere with the SPA.
