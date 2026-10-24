@@ -1,0 +1,48 @@
+{
+  "name": "codeatlas",
+  "version": "1.0.0",
+  "description": "CodeAtlas — AI codebase intelligence engine: import a repo, map its architecture, visualise dependencies, explain code, detect inconsistencies, generate docs.",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch backend/server/index.ts",
+    "dev:client": "vite --config frontend/vite.config.ts frontend",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx backend/tests/isolation.test.ts",
+    "build": "tsc --noEmit && vite build --config frontend/vite.config.ts frontend",
+    "start": "tsx backend/server/index.ts",
+    "db:import": "tsx backend/scripts/migrate-sqlite.ts"
+  },
+  "dependencies": {
+    "d3-force": "^3.0.0",
+    "express": "^5.2.1",
+    "lucide-react": "^1.51.0",
+    "multer": "^2.4.0",
+    "pg": "^8.23.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.4",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.6.1",
+    "concurrently": "^10.0.5",
+    "postcss": "^8.5.29",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.15",
+    "vite": "^8.3.2"
+  }
+}

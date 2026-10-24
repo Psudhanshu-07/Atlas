@@ -1,0 +1,4 @@
+﻿backend/tests/isolation.test.ts(308,28): error TS2339: Property 'rawQuery' does not exist on type 'typeof import("D:/CodeAtlas/backend/server/db")'.
+backend/tests/isolation.test.ts(312,29): error TS2339: Property 'rawQuery' does not exist on type 'typeof import("D:/CodeAtlas/backend/server/db")'.
+backend/tests/isolation.test.ts(322,12): error TS2339: Property 'closeDb' does not exist on type 'typeof import("D:/CodeAtlas/backend/server/db")'.
+backend/tests/isolation.test.ts(990,49): error TS2339: Property 'closeDb' does not exist on type 'typeof import("D:/CodeAtlas/backend/server/db")'.
