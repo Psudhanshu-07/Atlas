@@ -182,10 +182,17 @@ export async function chat(
   system: string,
   messagesOrUser: string | ChatMessage[],
   maxTokens = 2000,
+  strict = false,
 ): Promise<string | null> {
   const cfg = aiConfig();
-  if (!cfg.enabled) return null;
-  if (cfg.provider !== "local" && !cfg.key) return null;
+  if (!cfg.enabled) {
+    if (strict) throw new Error("AI provider is not enabled.");
+    return null;
+  }
+  if (cfg.provider !== "local" && !cfg.key) {
+    if (strict) throw new Error("AI provider key is missing.");
+    return null;
+  }
 
   const messages: ChatMessage[] = [{ role: "system", content: system }];
   if (typeof messagesOrUser === "string") {
@@ -195,6 +202,22 @@ export async function chat(
   }
 
   try {
+    // The free OpenRouter allowance used by this deployment has a 504-token
+    // prompt limit. Keep the current question and core instructions, but do
+    // not send large code excerpts or old conversation turns to that tier.
+    const requestMessages = cfg.provider === "openrouter"
+      ? [
+          { role: "system" as const, content: system.slice(0, 650) },
+          {
+            role: "user" as const,
+            content: messages.filter((message) => message.role === "user").at(-1)?.content.slice(0, 1_200) ?? "",
+          },
+        ]
+      : messages;
+    // OpenRouter checks max_tokens against the account's remaining credits
+    // before running the request. Keep the chat response compact and avoid a
+    // preventable 402 when a low-credit account can still answer briefly.
+    const requestMaxTokens = cfg.provider === "openrouter" ? Math.min(maxTokens, 60) : maxTokens;
     const headers: Record<string, string> = {
       "content-type": "application/json",
     };
@@ -213,23 +236,35 @@ export async function chat(
         model: cfg.model,
         // Low enough to stay factual, high enough not to read like a form letter.
         temperature: 0.4,
-        max_tokens: maxTokens,
-        messages,
+        max_tokens: requestMaxTokens,
+        messages: requestMessages,
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      console.warn(`[AI] Provider returned HTTP ${res.status}: ${errText.slice(0, 200)}`);
+      const detail = errText.replace(/\s+/g, " ").trim().slice(0, 300);
+      const message = `AI provider returned HTTP ${res.status}${detail ? `: ${detail}` : "."}`;
+      console.warn(`[AI] ${message}`);
+      if (strict) throw new Error(message);
       return null;
     }
 
-    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+    };
     const content = json.choices?.[0]?.message?.content;
-    return content && content.trim() ? content.trim() : null;
+    const text = Array.isArray(content)
+      ? content.map((part) => part.text ?? "").join("")
+      : content;
+    if (text && text.trim()) return text.trim();
+    if (strict) throw new Error("AI provider returned an empty response.");
+    return null;
   } catch (err) {
-    console.warn("[AI] Chat completion failed, falling back to deterministic analysis:", err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[AI] Chat completion failed: ${message}`);
+    if (strict) throw err instanceof Error ? err : new Error(message);
     return null;
   }
 }

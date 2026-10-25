@@ -584,7 +584,7 @@ ${readmeContext}` : ""}`.trim();
 
     chatMessages[chatMessages.length - 1].content += `\n\nResponse requirement: ${profile.instruction}`;
 
-    const aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens);
+    const aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens, true);
     if (aiResponse) {
       const answer = limitAnswer(aiResponse.trim(), profile.maxChars, profile.maxSentences);
       return {

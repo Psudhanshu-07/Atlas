@@ -100,8 +100,32 @@ registerAuthRoutes(app);
 
 /* ----------------------------------------------------------------- health */
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (req, res) => {
   const cfg = aiConfig();
+  if (req.query.probe === "1" && cfg.enabled) {
+    try {
+      await import("./ai").then(({ chat }) =>
+        chat(
+          "You are a connectivity check. Reply with exactly OK.",
+          "Reply with exactly OK.",
+          8,
+          true,
+        ),
+      );
+      res.json({ ok: true, aiEnabled: true, aiReachable: true, model: cfg.model, provider: cfg.provider });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(502).json({
+        ok: false,
+        aiEnabled: cfg.enabled,
+        aiReachable: false,
+        model: cfg.model,
+        provider: cfg.provider,
+        error: message,
+      });
+    }
+    return;
+  }
   res.json({ ok: true, aiEnabled: cfg.enabled, model: cfg.model, provider: cfg.provider });
 });
 
