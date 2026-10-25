@@ -55,37 +55,32 @@ if (frontendUrl && !allowedFrontendUrls.includes(frontendUrl)) {
 const allowed = (
   req: express.Request,
   res: express.Response,
-  next: express.NextFunction
+  next: express.NextFunction,
 ): void => {
   const origin = String(req.headers.origin ?? "").replace(/\/+$/, "");
-
-  if (origin && allowedFrontendUrls.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Vary", "Origin");
-    next();
-    return;
-  }
 
   if (!origin) {
     next();
     return;
   }
+  if (!allowedFrontendUrls.includes(origin)) {
+    res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+    return;
+  }
 
-  res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Vary", "Origin");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
 };
 
-  app.use("/api", allowed);
-  app.options("/api", (_req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", frontendUrl);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
-    res.sendStatus(204);
-  });
-}
+app.use("/api", allowed);
 
 // Baseline hardening — cheap, and they do not interfere with the SPA.
 app.use((_req, res, next) => {

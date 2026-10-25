@@ -80,7 +80,9 @@ function isHttps(req: Request): boolean {
  * rides on HTTPS — the pairing is enforced, never one without the other.
  */
 function cookieAttributes(req: Request): string[] {
-  const crossSite = Boolean(process.env.CODEATLAS_FRONTEND_URL?.trim());
+  const crossSite = Boolean(
+    process.env.CODEATLAS_FRONTEND_URL?.trim() || req.headers.origin,
+  );
   const parts = ["Path=/", "HttpOnly"];
   if (crossSite) {
     if (isHttps(req)) parts.push("SameSite=None", "Secure");
