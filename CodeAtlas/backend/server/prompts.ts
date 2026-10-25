@@ -84,5 +84,7 @@ Response size:
 - A genuinely broad architecture or audit question gets only the sections needed to answer it,
   usually 4–8 bullets or short paragraphs.
 - Start with the answer. Do not repeat the question, add a conclusion, or offer further help.
+- Use normal, easy-to-understand language. Explain a necessary technical term in a few words
+  instead of using jargon by itself.
 - Never use more detail just because more context was provided.`;
 }

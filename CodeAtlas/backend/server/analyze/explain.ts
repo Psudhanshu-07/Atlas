@@ -23,6 +23,7 @@ const STOPWORDS = new Set([
 function responseProfile(question: string, asksAboutRepo: boolean, wantsIssues: boolean): {
   maxTokens: number;
   maxChars: number;
+  maxSentences: number;
   instruction: string;
 } {
   const clean = question.trim();
@@ -32,32 +33,40 @@ function responseProfile(question: string, asksAboutRepo: boolean, wantsIssues: 
   if (isGreeting) {
     return {
       maxTokens: 80,
-      maxChars: 240,
+      maxChars: 180,
+      maxSentences: 1,
       instruction: "Reply naturally in one short sentence. Do not discuss the repository unless asked.",
     };
   }
   if (isSimple) {
     return {
-      maxTokens: 180,
-      maxChars: 800,
-      instruction: "Answer this focused question directly in 1–3 short sentences. Include only the essential supporting detail.",
+      maxTokens: 120,
+      maxChars: 480,
+      maxSentences: 2,
+      instruction: "Answer directly in no more than 2 short sentences. Use plain, easy-to-understand language and include only the essential detail.",
     };
   }
   if (asksAboutRepo || wantsIssues) {
     return {
-      maxTokens: 560,
-      maxChars: 2200,
-      instruction: "Answer in a compact structure with only the evidence needed for this broad question. Avoid a repository tour.",
+      maxTokens: 420,
+      maxChars: 1600,
+      maxSentences: 8,
+      instruction: "Answer in a compact structure with only the evidence needed for this broad question. Use plain language, avoid a repository tour, and do not add a conclusion or offer more help.",
     };
   }
   return {
-    maxTokens: 280,
-    maxChars: 1400,
-    instruction: "Answer in 2–4 short sentences or a small bullet list. Stay focused on the exact question.",
+    maxTokens: 220,
+    maxChars: 900,
+    maxSentences: 4,
+    instruction: "Answer in no more than 4 short sentences or a small bullet list. Use plain language and stay focused on the exact question.",
   };
 }
 
-function limitAnswer(answer: string, maxChars: number): string {
+function limitAnswer(answer: string, maxChars: number, maxSentences: number): string {
+  const sentences = answer.match(/[^.!?]+[.!?]+(?=\s|$)/g);
+  if (sentences && sentences.length > maxSentences) {
+    answer = sentences.slice(0, maxSentences).join(" ").trim();
+  }
   if (answer.length <= maxChars) return answer;
 
   const bounded = answer.slice(0, maxChars);
@@ -504,6 +513,9 @@ export async function askQuestion(
     .slice(0, wantsIssues ? 8 : 4);
 
   const deterministic = buildDeepDeterministicAnswer(analysis, question, top, relevantIssues, readme);
+  const asksAboutRepo =
+    /\b(repo|repository|project|this codebase|what (does|is).{0,24}(repo|project|codebase)|overview|architecture|structure|purpose)\b/i.test(question);
+  const profile = responseProfile(question, asksAboutRepo, wantsIssues);
 
   // If AI is configured, generate an AI-powered conversational response
   if (aiConfig().enabled) {
@@ -511,8 +523,6 @@ export async function askQuestion(
     // nothing scored, the fallback fan-in list is generic, so keep it minimal.
     const matched = ranked.length > 0;
     // README is only useful for "what is this repo" style questions.
-    const asksAboutRepo =
-      /\b(repo|repository|project|this codebase|what (does|is).{0,24}(repo|project|codebase)|overview|architecture|structure|purpose)\b/i.test(question);
     // Code excerpts only help "how/why/where/what does X do" engineering questions.
     const asksHowWhy = /\b(how|why|where|what|when|which|can|does|do|is|are)\b/i.test(question);
 
@@ -572,15 +582,11 @@ ${readmeContext}` : ""}`.trim();
     }
     chatMessages.push({ role: "user", content: userPrompt });
 
-    const profile = responseProfile(question, asksAboutRepo, wantsIssues);
-    chatMessages.push({
-      role: "user",
-      content: `Response requirement: ${profile.instruction}`,
-    });
+    chatMessages[chatMessages.length - 1].content += `\n\nResponse requirement: ${profile.instruction}`;
 
     const aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens);
     if (aiResponse) {
-      const answer = limitAnswer(aiResponse.trim(), profile.maxChars);
+      const answer = limitAnswer(aiResponse.trim(), profile.maxChars, profile.maxSentences);
       return {
         answer,
         sources: deterministic.sources,
@@ -590,7 +596,7 @@ ${readmeContext}` : ""}`.trim();
   }
 
   return {
-    answer: deterministic.answer,
+    answer: limitAnswer(deterministic.answer, profile.maxChars, profile.maxSentences),
     sources: deterministic.sources,
     mode: "heuristic",
   };
