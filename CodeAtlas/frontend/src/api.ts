@@ -54,8 +54,9 @@ export interface SessionInfo {
   userAgent: string;
   current: boolean;
 }
-
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const apiBaseUrl = (
+  import.meta.env.VITE_API_URL || "https://atlas-4rkf.onrender.com"
+).replace(/\/+$/, "");
 
 export function apiUrl(url: string): string {
   return `${apiBaseUrl}${url}`;
