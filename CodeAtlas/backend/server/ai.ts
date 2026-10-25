@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiKey: undefined,
   baseUrl: "https://openrouter.ai/api/v1",
   // Fast with a large context window; good at explaining code in a human voice.
-  model: "google/gemini-2.5-flash",
+  model: "openrouter/free",
   ignorePatterns: "node_modules, dist, .git, coverage, .turbo, .next, build",
   maxDepth: 12,
 };
@@ -63,10 +63,9 @@ export function loadSettings(): AppSettings {
     process.env.OPENROUTER_BASE_URL?.trim() ||
     process.env.OPENAI_BASE_URL?.trim() ||
     "";
-  const envModel =
-    process.env.OPENROUTER_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    "";
+  const envModel = envOpenRouterKey
+    ? process.env.OPENROUTER_MODEL?.trim() || ""
+    : process.env.OPENAI_MODEL?.trim() || "";
 
   const provider =
     envOpenRouterKey ? "openrouter" :
@@ -87,7 +86,7 @@ export function loadSettings(): AppSettings {
     }
   }
 
-  const model = envModel || loaded.model || DEFAULT_SETTINGS.model;
+  const model = envModel || (provider === "openrouter" ? "openrouter/free" : loaded.model || DEFAULT_SETTINGS.model);
   const aiEnabled = Boolean(apiKey && apiKey.length > 0) || (provider === "local");
 
   cachedSettings = {
@@ -229,7 +228,7 @@ export async function chat(
       headers["X-Title"] = "CodeAtlas Intelligence";
     }
 
-    const res = await fetch(`${cfg.base}/chat/completions`, {
+    let res = await fetch(`${cfg.base}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -241,6 +240,21 @@ export async function chat(
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+
+    if (res.status === 429 || res.status >= 500) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      res = await fetch(`${cfg.base}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: cfg.model,
+          temperature: 0.4,
+          max_tokens: requestMaxTokens,
+          messages: requestMessages,
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");

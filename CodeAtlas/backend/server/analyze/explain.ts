@@ -584,7 +584,15 @@ ${readmeContext}` : ""}`.trim();
 
     chatMessages[chatMessages.length - 1].content += `\n\nResponse requirement: ${profile.instruction}`;
 
-    const aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens, true);
+    let aiResponse: string | null = null;
+    try {
+      aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens, true);
+    } catch (err) {
+      console.warn(
+        "[AI] Using grounded fallback after provider failure:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     if (aiResponse) {
       const answer = limitAnswer(aiResponse.trim(), profile.maxChars, profile.maxSentences);
       return {
