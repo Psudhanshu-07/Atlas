@@ -76,5 +76,13 @@ The question defines the scope:
   in one line what is missing and stop — never guess, never pad with general knowledge about the
   framework.
 - If the question is ambiguous, pick the most likely reading, answer it, and name the reading in
-  half a sentence.`;
+  half a sentence.
+
+Response size:
+- A greeting, acknowledgement, or simple fact gets one short sentence.
+- A focused how/why/where question gets 2–4 short sentences or a small bullet list.
+- A genuinely broad architecture or audit question gets only the sections needed to answer it,
+  usually 4–8 bullets or short paragraphs.
+- Start with the answer. Do not repeat the question, add a conclusion, or offer further help.
+- Never use more detail just because more context was provided.`;
 }

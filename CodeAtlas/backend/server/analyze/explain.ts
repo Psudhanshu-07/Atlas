@@ -20,6 +20,59 @@ const STOPWORDS = new Set([
   "any", "there", "here", "into", "out", "up", "down", "if", "then", "than", "so",
 ]);
 
+function responseProfile(question: string, asksAboutRepo: boolean, wantsIssues: boolean): {
+  maxTokens: number;
+  maxChars: number;
+  instruction: string;
+} {
+  const clean = question.trim();
+  const isGreeting = /^(hi|hello|hey|thanks|thank you|ok|okay|good morning|good evening)[!.? ]*$/i.test(clean);
+  const isSimple = clean.length <= 90 && !asksAboutRepo && !wantsIssues;
+
+  if (isGreeting) {
+    return {
+      maxTokens: 80,
+      maxChars: 240,
+      instruction: "Reply naturally in one short sentence. Do not discuss the repository unless asked.",
+    };
+  }
+  if (isSimple) {
+    return {
+      maxTokens: 180,
+      maxChars: 800,
+      instruction: "Answer this focused question directly in 1–3 short sentences. Include only the essential supporting detail.",
+    };
+  }
+  if (asksAboutRepo || wantsIssues) {
+    return {
+      maxTokens: 560,
+      maxChars: 2200,
+      instruction: "Answer in a compact structure with only the evidence needed for this broad question. Avoid a repository tour.",
+    };
+  }
+  return {
+    maxTokens: 280,
+    maxChars: 1400,
+    instruction: "Answer in 2–4 short sentences or a small bullet list. Stay focused on the exact question.",
+  };
+}
+
+function limitAnswer(answer: string, maxChars: number): string {
+  if (answer.length <= maxChars) return answer;
+
+  const bounded = answer.slice(0, maxChars);
+  const sentenceEnd = Math.max(
+    bounded.lastIndexOf(". "),
+    bounded.lastIndexOf(".\n"),
+    bounded.lastIndexOf("! "),
+    bounded.lastIndexOf("?\n"),
+  );
+  if (sentenceEnd >= Math.floor(maxChars * 0.55)) {
+    return bounded.slice(0, sentenceEnd + 1).trim();
+  }
+  return `${bounded.trimEnd()}…`;
+}
+
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -519,19 +572,15 @@ ${readmeContext}` : ""}`.trim();
     }
     chatMessages.push({ role: "user", content: userPrompt });
 
-    // Output budget scales with the breadth of the question so a narrow
-    // question cannot elicit an essay.
-    const maxTokens = asksAboutRepo || wantsIssues ? 700 : 320;
+    const profile = responseProfile(question, asksAboutRepo, wantsIssues);
+    chatMessages.push({
+      role: "user",
+      content: `Response requirement: ${profile.instruction}`,
+    });
 
-    const aiResponse = await chat(systemPrompt, chatMessages, maxTokens);
+    const aiResponse = await chat(systemPrompt, chatMessages, profile.maxTokens);
     if (aiResponse) {
-      let answer = aiResponse.trim();
-      if (answer.length > 1500) {
-        // A hard safety net: the first paragraph or two is the actual answer;
-        // everything after a third paragraph is cut.
-        const paras = answer.split(/\n\s*\n/);
-        answer = paras.slice(0, 3).join("\n\n").trim();
-      }
+      const answer = limitAnswer(aiResponse.trim(), profile.maxChars);
       return {
         answer,
         sources: deterministic.sources,
