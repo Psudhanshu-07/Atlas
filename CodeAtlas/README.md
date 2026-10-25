@@ -117,8 +117,8 @@ environment variables take precedence.
 | `CODEATLAS_DATA_DIR` | Where runtime data lives: database, checkouts, storage key (default `./.codeatlas`) |
 | `CODEATLAS_LOCAL_ROOTS` | Extra directories a local-path analysis may read, separated by `,` or `;` |
 | `CODEATLAS_ADMIN_EMAIL` | Pin the admin role to one GitHub e-mail instead of the first account |
-| `OPENAI_API_KEY` (or `CODEATLAS_API_KEY` / `GEMINI_API_KEY`) | Enables the AI layer |
-| `OPENAI_BASE_URL`, `OPENAI_MODEL` | OpenAI-compatible endpoint and model id (defaults: OpenRouter, `google/gemini-2.5-flash`) |
+| `OPENROUTER_API_KEY` (or `OPENAI_API_KEY` / `CODEATLAS_API_KEY` / `GEMINI_API_KEY`) | Enables the AI layer; `OPENROUTER_API_KEY` selects OpenRouter automatically |
+| `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL` (or `OPENAI_BASE_URL`, `OPENAI_MODEL`) | OpenAI-compatible endpoint and model id (defaults: OpenRouter, `google/gemini-2.5-flash`) |
 
 ## 🚀 Deployment
 

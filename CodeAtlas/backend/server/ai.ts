@@ -52,14 +52,29 @@ export function loadSettings(): AppSettings {
     console.error("Failed to load settings file, using defaults:", err);
   }
 
-  // Environment variables take precedence if set
-  const envKey = process.env.OPENAI_API_KEY || process.env.CODEATLAS_API_KEY || process.env.GEMINI_API_KEY || "";
-  const envBase = process.env.OPENAI_BASE_URL || "";
-  const envModel = process.env.OPENAI_MODEL || "";
+  // Deployment environment variables take precedence over saved local settings.
+  // OpenRouter has its own key names so it cannot be mistaken for an OpenAI key.
+  const envOpenRouterKey = process.env.OPENROUTER_API_KEY?.trim() || "";
+  const envOpenAIKey = process.env.OPENAI_API_KEY?.trim() || "";
+  const envCodeAtlasKey = process.env.CODEATLAS_API_KEY?.trim() || "";
+  const envGeminiKey = process.env.GEMINI_API_KEY?.trim() || "";
+  const envKey = envOpenRouterKey || envOpenAIKey || envCodeAtlasKey || envGeminiKey;
+  const envBase =
+    process.env.OPENROUTER_BASE_URL?.trim() ||
+    process.env.OPENAI_BASE_URL?.trim() ||
+    "";
+  const envModel =
+    process.env.OPENROUTER_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    "";
 
-  const provider = loaded.provider || (process.env.GEMINI_API_KEY ? "gemini" : "openrouter");
-  const apiKey = loaded.apiKey || envKey || undefined;
-  let baseUrl = loaded.baseUrl || envBase;
+  const provider =
+    envOpenRouterKey ? "openrouter" :
+    envGeminiKey ? "gemini" :
+    loaded.provider || (envOpenAIKey || envCodeAtlasKey ? "openai" : "openrouter");
+  const apiKey = envKey || loaded.apiKey?.trim() || undefined;
+  const hasProviderEnv = Boolean(envOpenRouterKey || envGeminiKey || envOpenAIKey || envCodeAtlasKey);
+  let baseUrl = envBase || (hasProviderEnv ? "" : loaded.baseUrl);
   if (!baseUrl) {
     if (provider === "gemini") {
       baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai";
@@ -72,7 +87,7 @@ export function loadSettings(): AppSettings {
     }
   }
 
-  const model = loaded.model || envModel || DEFAULT_SETTINGS.model;
+  const model = envModel || loaded.model || DEFAULT_SETTINGS.model;
   const aiEnabled = Boolean(apiKey && apiKey.length > 0) || (provider === "local");
 
   cachedSettings = {
