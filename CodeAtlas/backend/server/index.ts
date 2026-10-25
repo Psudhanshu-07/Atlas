@@ -38,20 +38,45 @@ app.set("trust proxy", 1);
 // API from a different origin (for example Vercel serving the SPA against a
 // Render service), calls are cross-origin and cookies need explicit consent.
 // Same-origin deployments (the default) need none of this.
-const frontendUrl = process.env.CODEATLAS_FRONTEND_URL?.trim().replace(/\/$/, "");
-if (frontendUrl) {
-  const allowed = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
-    const origin = String(req.headers.origin ?? "");
-    if (origin && origin === frontendUrl) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Vary", "Origin");
-      next();
-      return;
-    }
-    // Foreign origins read as "no API here" rather than a CORS listing.
-    res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
-  };
+
+const allowedFrontendUrls = [
+  "https://atlas-falcons24.vercel.app",
+  "https://atlas-navy-delta.vercel.app",
+];
+
+const frontendUrl = process.env.CODEATLAS_FRONTEND_URL
+  ?.trim()
+  .replace(/\/+$/, "");
+
+if (frontendUrl && !allowedFrontendUrls.includes(frontendUrl)) {
+  allowedFrontendUrls.push(frontendUrl);
+}
+
+const allowed = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void => {
+  const origin = String(req.headers.origin ?? "").replace(/\/+$/, "");
+
+  if (origin && allowedFrontendUrls.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Vary", "Origin");
+    next();
+    return;
+  }
+
+  if (!origin) {
+    next();
+    return;
+  }
+
+  res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
+};
+
   app.use("/api", allowed);
   app.options("/api", (_req, res) => {
     res.setHeader("Access-Control-Allow-Origin", frontendUrl);
