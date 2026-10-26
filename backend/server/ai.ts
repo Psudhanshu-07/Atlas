@@ -52,12 +52,32 @@ export function loadSettings(): AppSettings {
     console.error("Failed to load settings file, using defaults:", err);
   }
 
-  // Environment variables take precedence if set
-  const envKey = process.env.OPENAI_API_KEY || process.env.CODEATLAS_API_KEY || process.env.GEMINI_API_KEY || "";
-  const envBase = process.env.OPENAI_BASE_URL || "";
-  const envModel = process.env.OPENAI_MODEL || "";
+  // Environment variables take precedence if set. All the spelling people
+  // actually use is accepted: OpenAI-style names plus the OpenRouter and
+  // Gemini ones, so the provider's own docs copy-paste works as-is.
+  const envKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.CODEATLAS_API_KEY ||
+    process.env.OPENROUTER_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    "";
+  const envBase = process.env.OPENAI_BASE_URL || process.env.OPENROUTER_BASE_URL || "";
+  const envModel = process.env.OPENAI_MODEL || process.env.OPENROUTER_MODEL || "";
 
-  const provider = loaded.provider || (process.env.GEMINI_API_KEY ? "gemini" : "openrouter");
+  // Provider follows the key's shape when nothing was pinned: an `sk-or-…`
+  // key is OpenRouter, `AIza…` is Gemini, anything else OpenAI. This keeps a
+  // key pasted under an unrelated env name from being sent to the wrong
+  // gateway (which silently degrades every answer to the canned fallback).
+  const keyForProvider = loaded.apiKey || envKey || "";
+  const provider =
+    loaded.provider ||
+    (keyForProvider.startsWith("AIza")
+      ? "gemini"
+      : keyForProvider.startsWith("sk-or")
+        ? "openrouter"
+        : keyForProvider
+          ? "openai"
+          : "openrouter");
   const apiKey = loaded.apiKey || envKey || undefined;
   let baseUrl = loaded.baseUrl || envBase;
   if (!baseUrl) {
@@ -72,7 +92,17 @@ export function loadSettings(): AppSettings {
     }
   }
 
-  const model = loaded.model || envModel || DEFAULT_SETTINGS.model;
+  // Each gateway has its own model namespace, so when no model was
+  // configured pick the one that belongs to the gateway, never a model id
+  // from another provider's catalog.
+  const model =
+    loaded.model ||
+    envModel ||
+    (provider === "openai"
+      ? "gpt-4o-mini"
+      : provider === "gemini"
+        ? "gemini-2.5-flash"
+        : DEFAULT_SETTINGS.model);
   const aiEnabled = Boolean(apiKey && apiKey.length > 0) || (provider === "local");
 
   cachedSettings = {
@@ -159,9 +189,68 @@ export interface ChatMessage {
   content: string;
 }
 
+type Attempt =
+  | { ok: true; content: string }
+  | { ok: false; status: number; body: string };
+
+interface AttemptHeaders extends Record<string, string> {}
+
+/**
+ * Free-tier OpenRouter models that visitors (unpaid keys) can still use.
+ * Verified against the live catalog; first entry is the strongest escape
+ * hatch when a configured paid model can no longer run.
+ */
+const FREE_FALLBACK_MODELS = [
+  "poolside/laguna-s-2.1:free",
+  "cohere/north-mini-code:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+];
+
+async function attemptModel(
+  base: string,
+  headers: AttemptHeaders,
+  model: string,
+  messages: ChatMessage[],
+  maxTokens: number,
+): Promise<Attempt> {
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        // Low enough to stay factual, high enough not to read like a form letter.
+        temperature: 0.4,
+        max_tokens: maxTokens,
+        messages,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, status: res.status, body };
+    }
+
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = json.choices?.[0]?.message?.content;
+    if (content && content.trim()) return { ok: true, content: content.trim() };
+    return { ok: false, status: 500, body: "provider returned an empty choice" };
+  } catch (err) {
+    return { ok: false, status: 0, body: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Chat completion with optional multi-turn conversation support.
- * Returns null on any failure so callers can fall back to the deterministic engine.
+ *
+ * On OpenRouter the request walks a short model chain: the configured model
+ * first, then free-tier substitutes. A key with no credits (HTTP 402 — paid
+ * model) or a congested/rate-limited free model therefore still produces a
+ * real answer instead of silently degrading to the canned template.
+ * Returns null only when every attempt fails, so callers can fall back to
+ * the deterministic engine.
  */
 export async function chat(
   system: string,
@@ -179,42 +268,45 @@ export async function chat(
     messages.push(...messagesOrUser);
   }
 
-  try {
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-    };
-    if (cfg.key) {
-      headers["authorization"] = `Bearer ${cfg.key}`;
-    }
-    if (cfg.base.includes("openrouter.ai") || cfg.provider === "openrouter") {
-      headers["HTTP-Referer"] = "https://codeatlas.dev";
-      headers["X-Title"] = "CodeAtlas Intelligence";
-    }
+  const headers: AttemptHeaders = { "content-type": "application/json" };
+  if (cfg.key) {
+    headers["authorization"] = `Bearer ${cfg.key}`;
+  }
+  if (cfg.base.includes("openrouter.ai") || cfg.provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://codeatlas.dev";
+    headers["X-Title"] = "CodeAtlas Intelligence";
+  }
 
-    const res = await fetch(`${cfg.base}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        // Low enough to stay factual, high enough not to read like a form letter.
-        temperature: 0.4,
-        max_tokens: maxTokens,
-        messages,
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+  // Model chain, de-duplicated: configured first, then free substitutes.
+  // 401 stays terminal — the key itself is wrong; switching models cannot
+  // fix auth, and hammering alternates just repeats the rejection.
+  const onOpenRouter = cfg.provider === "openrouter";
+  const chain = onOpenRouter
+    ? [...new Set([cfg.model, ...FREE_FALLBACK_MODELS.filter((m) => m !== cfg.model)])]
+    : [cfg.model];
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.warn(`[AI] Provider returned HTTP ${res.status}: ${errText.slice(0, 200)}`);
+  let lastProblem = "";
+  for (const model of chain) {
+    const r = await attemptModel(cfg.base, headers, model, messages, maxTokens);
+    if (r.ok) {
+      if (model !== cfg.model) {
+        console.warn(`[AI] served the request with fallback model ${model}`);
+      }
+      return r.content;
+    }
+    lastProblem = `HTTP ${r.status}: ${r.body.slice(0, 200)}`;
+    if (r.status === 401) {
+      console.warn(`[AI] ${model} rejected the key (401) — not trying alternates: ${r.body.slice(0, 200)}`);
       return null;
     }
-
-    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const content = json.choices?.[0]?.message?.content;
-    return content && content.trim() ? content.trim() : null;
-  } catch (err) {
-    console.warn("[AI] Chat completion failed, falling back to deterministic analysis:", err instanceof Error ? err.message : String(err));
-    return null;
+    if (r.status === 402) {
+      console.warn(
+        `[AI] ${model} is a paid model but the account has no credits (402) — trying a free-tier model`,
+      );
+      continue;
+    }
+    // 429/404/5xx/network/empty: try the next candidate in the chain.
   }
+  console.warn(`[AI] every model attempt failed, falling back to deterministic analysis: ${lastProblem}`);
+  return null;
 }
