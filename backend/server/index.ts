@@ -38,17 +38,32 @@ app.set("trust proxy", 1);
 // API from a different origin (for example Vercel serving the SPA against a
 // Render service), calls are cross-origin and cookies need explicit consent.
 // Same-origin deployments (the default) need none of this.
-const frontendUrl = process.env.CODEATLAS_FRONTEND_URL?.trim().replace(/\/$/, "");
+// The value may also be a comma-separated list (production + preview fronts).
+// Comparison normalizes quotes/whitespace/trailing slash/case so a value copied
+// from a shell file with stray punctuation still matches.
+function normalizeOrigin(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+const allowedOrigins = (process.env.CODEATLAS_FRONTEND_URL ?? "")
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
 const ALLOW_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-if (frontendUrl) {
+if (allowedOrigins.length > 0) {
+  console.log(`[cors] cross-origin API allowed for: ${allowedOrigins.join(", ")}`);
   const allowed = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
     const origin = String(req.headers.origin ?? "");
     // Only a named foreign origin is refused. Requests without an Origin header
     // are not CORS-monitored at all — top-level navigations (the OAuth callback
     // redirect) and non-browser clients — so passing them through keeps those
     // flows working without opening the API to web pages on other origins.
-    if (origin && origin !== frontendUrl) {
+    if (origin && !allowedOrigins.includes(normalizeOrigin(origin))) {
       // Foreign origins read as "no API here" rather than a CORS listing.
+      console.warn(`[cors] rejected browser origin "${origin}" — set CODEATLAS_FRONTEND_URL to exactly this value`);
       res.status(403).json({ error: "Origin not allowed." } satisfies ApiError);
       return;
     }
