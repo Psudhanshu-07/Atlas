@@ -3,13 +3,14 @@
 // detection, path normalization). Run with: npm run test:unit
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as path from "node:path";
 import { posix } from "../../server/analyze/crawl";
 import { detectLanguage, isSourceLanguage } from "../../server/analyze/lang";
 import { clusterOf } from "../../server/analyze/pipeline";
 import { plural } from "../../../shared/format";
 
-test("posix normalizes Windows separators to forward slashes", () => {
-  assert.equal(posix("server\\db\\users.ts"), "server/db/users.ts");
+test("posix normalizes platform separators to forward slashes", () => {
+  assert.equal(posix(path.join("server", "db", "users.ts")), "server/db/users.ts");
   assert.equal(posix("already/unix/path.ts"), "already/unix/path.ts");
 });
 
