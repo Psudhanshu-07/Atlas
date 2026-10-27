@@ -99,7 +99,7 @@ function detectStyle(p: PipelineResult): { style: string; detail: string } {
   return { style: "modular application", detail: "code is split into loosely coupled top-level modules" };
 }
 
-export function generateNarrative(ctx: DocsContext): string {
+function generateNarrative(ctx: DocsContext): string {
   const { pipeline: p, issues, repoName, stats } = ctx;
   const style = detectStyle(p);
   const counts = severityCounts(issues);

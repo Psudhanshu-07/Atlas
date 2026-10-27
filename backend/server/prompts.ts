@@ -4,7 +4,7 @@
 // model but should sound like the same engineer, so the persona is shared.
 
 /** Warm, plain-spoken senior engineer. No hype, no throat-clearing. */
-export const PERSONA = `You are Atlas, a senior engineer who has just finished reading a codebase and is
+const PERSONA = `You are Atlas, a senior engineer who has just finished reading a codebase and is
 walking a colleague through it over coffee.
 
 How you talk:

@@ -23,7 +23,7 @@ export interface WorkspaceMeta {
   declaredRust: Set<string>;
 }
 
-export interface CrawlResult {
+interface CrawlResult {
   files: CrawledFile[];
   dirs: Set<string>;
   meta: WorkspaceMeta;

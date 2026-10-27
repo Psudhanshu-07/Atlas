@@ -108,9 +108,6 @@ export function failJob(job: Job, err: unknown): void {
   job.message = "Analysis failed.";
 }
 
-export function getJob(id: string): Job | undefined {
-  return jobs.get(id);
-}
 
 /**
  * Fetch a job only when it belongs to `ownerUserId`. An id from another account

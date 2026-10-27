@@ -22,7 +22,7 @@ import * as db from "./db";
 import { DATA_DIR } from "./paths";
 import { exchangeCode, fetchProfile, githubApiBase, githubHeaders, githubWebBase, type GithubProfile } from "./github";
 
-export interface AuthUser {
+interface AuthUser {
   id: number;
   email: string;
   name: string;
@@ -176,7 +176,7 @@ function readName(value: unknown, fallback: string): string {
 
 /* ------------------------------------------------------------ GitHub OAuth */
 
-export function githubOAuthConfigured(): boolean {
+function githubOAuthConfigured(): boolean {
   return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
 }
 

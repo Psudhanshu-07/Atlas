@@ -48,7 +48,7 @@ export const VIEWS_NEEDING_REPO: ReadonlySet<ViewId> = new Set<ViewId>([
 const POLL_INTERVAL_MS = 320;
 
 /** Session state: the shell renders the sign-in screen until "authed". */
-export type AuthStatus = "loading" | "anon" | "authed";
+type AuthStatus = "loading" | "anon" | "authed";
 
 export interface AuthProviders {
   github: boolean;

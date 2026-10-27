@@ -14,7 +14,7 @@ export interface ResolverContext {
   meta: WorkspaceMeta;
 }
 
-export interface ResolvedImport {
+interface ResolvedImport {
   resolved?: string;
   external?: string;
 }

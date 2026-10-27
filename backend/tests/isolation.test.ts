@@ -9,7 +9,7 @@
 //      with client id and scopes, state validation, rejected codes, session
 //      creation, identity resolution, and no repository list without the grant;
 //   4. User A analyses two repositories, including the demo-app baseline
-//      (13 findings / 40 files / 1283 lines / 8 clusters / 67 edges);
+//      (11 findings / 42 files / 538 lines / 8 clusters / 71 edges);
 //   5. User B analyses the *same* source as A: same source-derived id, its own
 //      row;
 //   6. every direct-API attempt by B against A's analyses, files, jobs,
@@ -595,11 +595,11 @@ async function main(): Promise<void> {
     const aDemo = await analyzeAndWait(alice, "samples/demo-app");
     const aDemoId = aDemo.job.result.analysis.repo.id as string;
     const demoStats = aDemo.job.result.analysis.stats;
-    check("demo-app: 40 files", demoStats.files === 40, `got ${demoStats.files}`);
-    check("demo-app: 1283 lines", demoStats.lines === 1283, `got ${demoStats.lines}`);
+    check("demo-app: 42 files", demoStats.files === 42, `got ${demoStats.files}`);
+    check("demo-app: 538 lines", demoStats.lines === 538, `got ${demoStats.lines}`);
     check("demo-app: 8 clusters", demoStats.clusters === 8, `got ${demoStats.clusters}`);
-    check("demo-app: 67 internal edges", demoStats.internalDeps === 67, `got ${demoStats.internalDeps}`);
-    check("demo-app: 13 findings", demoStats.issues === 13, `got ${demoStats.issues}`);
+    check("demo-app: 71 internal edges", demoStats.internalDeps === 71, `got ${demoStats.internalDeps}`);
+    check("demo-app: 11 findings", demoStats.issues === 11, `got ${demoStats.issues}`);
 
     const aDemoList = await alice.request("GET", "/api/analyses");
     check("alice sees 1 analysis", aDemoList.body?.analyses?.length === 1);
@@ -646,8 +646,8 @@ async function main(): Promise<void> {
     const bDemoId = bDemo.job.result.analysis.repo.id as string;
     check("bob's demo-app id matches alice's (same source)", bDemoId === aDemoId);
     check(
-      "bob's copy also has 13 findings",
-      bDemo.job.result.analysis.stats.issues === 13,
+      "bob's copy also has 11 findings",
+      bDemo.job.result.analysis.stats.issues === 11,
       `got ${bDemo.job.result.analysis.stats.issues}`,
     );
 

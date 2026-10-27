@@ -28,7 +28,7 @@ const KNOWN_LIBS: Array<{ match: string | RegExp; label: string }> = [
   { match: /^tailwindcss$/, label: "Tailwind" },
 ];
 
-export interface RepoUnderstanding {
+interface RepoUnderstanding {
   tagline: string;
   whatItIs: string;
   howItWorks: string;
@@ -249,91 +249,4 @@ export function buildRepoUnderstanding(analysis: Analysis, readmeExcerpt?: strin
     frameworks,
     markdown: mdParts.join("\n"),
   };
-}
-
-export function heuristicAnswerForQuestion(
-  analysis: Analysis,
-  question: string,
-  readmeExcerpt?: string,
-): { answer: string; sources: string[] } {
-  const understanding = buildRepoUnderstanding(analysis, readmeExcerpt);
-  const q = question.toLowerCase();
-  const sources = [...understanding.beginnerFiles.map((f) => f.path), ...analysis.entryPoints].filter(
-    (p, i, arr) => arr.indexOf(p) === i,
-  ).slice(0, 6);
-
-  const wantsOverview =
-    /\b(what is|what's|whats|overview|explain (the )?(repo|repository|project|codebase|system)|how (does|do|is) (this|it|the)|onboard|getting started|big picture|architecture)\b/i.test(
-      question,
-    ) || tokensLookLikeOverview(q);
-
-  const wantsFlow = /\b(flow|request|lifecycle|pipeline|how.*(reach|work|route|api|database|db))\b/i.test(question);
-  const wantsStart = /\b(where (do|should) i (start|read|look|add|implement)|new feature|onboard|beginner|first file)\b/i.test(
-    question,
-  );
-  const wantsRisk = /\b(issue|risk|cycle|circular|smell|debt|wrong|broken|hub|god file)\b/i.test(question);
-
-  if (wantsStart) {
-    return {
-      sources,
-      answer: [
-        `Start with the files that actually boot and define **${analysis.repo.name}**:`,
-        "",
-        ...understanding.beginnerFiles.map((f, i) => `${i + 1}. \`${f.path}\`: ${f.reason}`),
-        "",
-        understanding.howItWorks,
-      ].join("\n"),
-    };
-  }
-
-  if (wantsFlow) {
-    return {
-      sources,
-      answer: [
-        `How **${analysis.repo.name}** is wired, taken from the dependency graph.`,
-        "",
-        understanding.howItWorks,
-        "",
-        ...understanding.workflow.map((w) => `**Step ${w.step} · ${w.title}**: ${w.desc}`),
-        "",
-        "Follow the cited files in order: each one imports the next layer.",
-      ].join("\n"),
-    };
-  }
-
-  if (wantsRisk) {
-    const top = analysis.issues.slice(0, 8);
-    return {
-      sources: [...new Set(top.flatMap((i) => i.files))].slice(0, 6),
-      answer:
-        top.length === 0
-          ? `No structural risks were flagged in **${analysis.repo.name}**.`
-          : [
-              `**${analysis.repo.name}** has **${analysis.issues.length}** structural findings. The most important:`,
-              "",
-              ...top.map((i) => `- **[${i.severity}] ${i.title}**: ${i.description} *Fix:* ${i.fix}`),
-            ].join("\n"),
-    };
-  }
-
-  if (wantsOverview) {
-    return { sources, answer: understanding.markdown };
-  }
-
-  return { sources, answer: understanding.markdown };
-}
-
-function tokensLookLikeOverview(q: string): boolean {
-  const simple = [
-    "explain this",
-    "explain the repo",
-    "what does this do",
-    "how does this work",
-    "how will it work",
-    "how'll it work",
-    "tell me about this",
-    "summarize",
-    "summary",
-  ];
-  return simple.some((s) => q.includes(s));
 }

@@ -1,7 +1,7 @@
 {
   "name": "codeatlas",
   "version": "1.0.0",
-  "description": "CodeAtlas \u2014 AI codebase intelligence engine: import a repo, map its architecture, visualise dependencies, explain code, detect inconsistencies, generate docs.",
+  "description": "CodeAtlas — AI codebase intelligence engine: import a repo, map its architecture, visualise dependencies, explain code, detect inconsistencies, generate docs.",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -11,7 +11,10 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx backend/tests/isolation.test.ts",
     "build": "tsc --noEmit && vite build --config frontend/vite.config.ts frontend",
-    "start": "tsx backend/server/index.ts"
+    "start": "tsx backend/server/index.ts",
+    "test:unit": "tsx --test backend/tests/unit/*.test.ts",
+    "test:all": "npm run typecheck && npm run test:unit && npm test",
+    "smoke": "tsx backend/tests/smoke.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

@@ -1,0 +1,38 @@
+# Continuous checks for Atlas: types, unit tests, API integration tests and the
+# frontend build. Runs on every push and pull request so a regression can never
+# merge silently.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Full API journey suite: boots the server on the embedded local Postgres
+      # and exercises auth isolation, ownership, CORS and rate limiting.
+      - name: Integration tests
+        run: npm test
+
+      - name: Frontend build
+        run: npm run build

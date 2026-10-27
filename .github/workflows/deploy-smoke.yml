@@ -1,0 +1,31 @@
+# Post-deployment smoke test: verifies the public surface of a DEPLOYED
+# environment (health, SPA shell, security headers, auth guard, error shape).
+# Trigger manually from the Actions tab with the deployment base URL, or run
+# locally: BASE_URL=https://atlas-4rkf.onrender.com npm run smoke
+name: Deploy smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL of the deployed API (e.g. https://atlas-4rkf.onrender.com)"
+        required: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Smoke test the deployment
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        run: npm run smoke

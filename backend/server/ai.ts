@@ -10,7 +10,7 @@ const TIMEOUT_MS = 60_000;
 const PROJECT_ROOT = process.cwd();
 const SETTINGS_FILE = path.join(PROJECT_ROOT, ".codeatlas", "settings.json");
 
-export interface AppSettings {
+interface AppSettings {
   aiEnabled: boolean;
   provider: "openai" | "gemini" | "anthropic" | "local" | "openrouter" | "custom";
   apiKey?: string;
@@ -165,7 +165,7 @@ export function saveSettings(partial: Partial<AppSettings>): AppSettings {
   return updated;
 }
 
-export interface AiConfig {
+interface AiConfig {
   enabled: boolean;
   key?: string;
   base: string;

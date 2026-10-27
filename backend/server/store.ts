@@ -26,9 +26,6 @@ export async function listAnalysesFor(ownerUserId: number): Promise<AnalysisSumm
   return db.listAnalysisRows(ownerUserId);
 }
 
-export async function linkedReposFor(ownerUserId: number): Promise<LinkedRepo[]> {
-  return db.listLinkedRepos(ownerUserId);
-}
 
 /** Everything the dashboard renders, computed only from this user's rows. */
 export async function dashboardFor(ownerUserId: number): Promise<DashboardData> {

@@ -314,6 +314,55 @@ it**. Two variables exist only for that stub: `CODEATLAS_GITHUB_WEB_URL` and
 `CODEATLAS_GITHUB_API_URL` redirect the server's GitHub traffic. Never set them in
 production; unset, they default to the real GitHub.
 
+### Unit tests
+
+```bash
+npm run test:unit
+```
+
+Fast, dependency-free checks of the pure helpers (path normalization, language
+detection, count formatting). No server, no database — safe to run anytime.
+
+### Everything at once
+
+```bash
+npm run test:all   # typecheck → unit tests → integration suite
+```
+
+## 🤖 CI & post-deploy smoke
+
+GitHub Actions runs the whole gate on every push and PR (`.github/workflows/ci.yml`):
+typecheck, unit tests, the API acceptance suite and the frontend build.
+
+After each deployment, verify the live environment with the smoke script:
+
+```bash
+BASE_URL=https://<your-api>.onrender.com npm run smoke
+```
+
+It checks the public surface only — health, the SPA shell, security headers
+(nosniff / frame-deny / HSTS), the anonymous 401 guard and JSON error shapes.
+The same check can be triggered from the Actions tab with
+`Deploy smoke → Run workflow`.
+
+## 🔧 Production operations
+
+- **Migrations.** The schema is created and extended automatically at boot, so a
+  redeploy performs the upgrade; there is no manual migration step.
+- **Backups.** When the database is Supabase-hosted, use the dashboard's
+  automatic daily backups (Pro) or `pg_dump` of the pooler connection string;
+  restore by importing the dump into a new project and swapping `DATABASE_URL`.
+- **Logs & alerts.** Every process-level fault is logged with a `[FATAL]`
+  marker; wire Render/Vercel log drains to an alert on that marker. Parity
+ -severity request failures return JSON with a generic message — details stay
+  in the server log.
+- **Domains & TLS.** Both hosts terminate HTTPS with automatic HSTS
+  (`max-age=31536000; includeSubDomains`) set by the API; HTTP is redirected by
+  Render/Vercel at the edge. Set `CODEATLAS_BASE_URL` to the API's fixed public
+  origin and `CODEATLAS_FRONTEND_URL` to the client's origin when hosted apart.
+- **SEO.** The SPA ships OG/Twitter meta, favicon, `robots.txt` and
+  `sitemap.xml` from `public/`, served with the build.
+
 ## 🧭 Known limitations
 
 - **One process, one database file.** `node:sqlite` keeps this to a single instance;

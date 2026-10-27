@@ -25,7 +25,7 @@ const exec = promisify(execFile);
  * Without this, any signed-in user could point the crawler at any directory the
  * server process can read, which is a read-any-file primitive on a shared host.
  */
-export function allowedLocalRoots(): string[] {
+function allowedLocalRoots(): string[] {
   const extra = (process.env.CODEATLAS_LOCAL_ROOTS ?? "")
     .split(/[;,]/)
     .map((s) => s.trim())
@@ -77,12 +77,12 @@ export function assertLocalSourceAllowed(source: string): void {
   ensureAllowed(existing);
 }
 
-export interface ResolvedRepo {
+interface ResolvedRepo {
   root: string;
   repo: Analysis["repo"];
 }
 
-export interface GithubTarget {
+interface GithubTarget {
   owner: string;
   repo: string;
   branch?: string;

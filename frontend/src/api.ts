@@ -33,7 +33,7 @@ export interface ConfigResponse {
   maxDepth: number;
 }
 
-export interface ConfigPayload {
+interface ConfigPayload {
   provider?: string;
   apiKey?: string;
   baseUrl?: string;

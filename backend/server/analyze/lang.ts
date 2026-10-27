@@ -4,14 +4,14 @@
 
 import ts from "typescript";
 
-export interface RawImport {
+interface RawImport {
   raw: string;
   line: number;
   names: string[];
   all: boolean;
 }
 
-export interface RawExport {
+interface RawExport {
   name: string;
   line: number;
   kind: string;

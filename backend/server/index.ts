@@ -28,6 +28,8 @@ import { PROJECT_ROOT } from "./paths";
 import type { ApiError } from "../../shared/types";
 
 const app = express();
+// Do not advertise the stack version in responses.
+app.disable("x-powered-by");
 
 // Behind Render's reverse proxy (and any other TLS-terminating host) the app
 // must trust X-Forwarded-Proto, or cookie policies and redirect URIs read as
@@ -94,6 +96,7 @@ app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains"); // inert over plain HTTP dev
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   // Defense in depth for the served SPA (same-origin mode): scripts only from
   // this origin, styles/fonts from Google Fonts, and images from any https
@@ -369,4 +372,14 @@ const requestedPort = Number(process.env.PORT);
 const port = Number.isInteger(requestedPort) && requestedPort > 0 ? requestedPort : 3001;
 app.listen(port, () => {
   console.log(`CodeAtlas API listening on http://localhost:${port} (AI ${aiConfig().enabled ? "on" : "off"})`);
+});
+
+// Crash safety net: log with a stable marker so host log-based alerting
+// (Render/Vercel log drains) can page on real process-level faults
+// instead of only per-request failures.
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] unhandledRejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] uncaughtException:", err);
 });

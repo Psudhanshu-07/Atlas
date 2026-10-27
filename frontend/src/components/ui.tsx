@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Severity } from "../../../shared/types";
-import { AlertTriangle, X } from "lucide-react";
+import { X } from "lucide-react";
 import logoSrc from "../assets/logo.png";
 
 export function Spinner({ size = 16, className = "" }: { size?: number; className?: string }) {
@@ -60,62 +60,8 @@ export function Badge({
   return <span className={`badge badge-${variant} ${className}`}>{children}</span>;
 }
 
-export function StatusDot({ status }: { status: "online" | "warning" | "error" | "analyzing" | "idle" }) {
-  return <span className={`status-dot status-${status}`} />;
-}
 
-export function Stat({
-  label,
-  value,
-  hint,
-  trend,
-  icon,
-}: {
-  label: string;
-  value: ReactNode;
-  hint?: string;
-  trend?: string;
-  icon?: ReactNode;
-}) {
-  return (
-    <div className="stat" title={hint}>
-      <div className="stat-top">
-        <span className="stat-label">{label}</span>
-        {icon && <span className="stat-icon">{icon}</span>}
-      </div>
-      <div className="stat-value">{value}</div>
-      {(hint || trend) && (
-        <div className="stat-hint">
-          {trend && <span className="stat-trend">{trend}</span>}
-          {hint && <span>{hint}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
 
-export function MetricDisplay({
-  title,
-  value,
-  subvalue,
-  badge,
-}: {
-  title: string;
-  value: ReactNode;
-  subvalue?: string;
-  badge?: ReactNode;
-}) {
-  return (
-    <div className="metric-display">
-      <div className="metric-header">
-        <span className="metric-title">{title}</span>
-        {badge}
-      </div>
-      <div className="metric-main">{value}</div>
-      {subvalue && <div className="metric-sub">{subvalue}</div>}
-    </div>
-  );
-}
 
 export function Section({
   title,
@@ -162,67 +108,8 @@ export function LoadingSkeleton({ lines = 3, height = 18 }: { lines?: number; he
   );
 }
 
-export function NeedRepoState({ onConnect }: { onConnect: () => void }) {
-  return (
-    <EmptyState
-      title="Connect a repository first"
-      description="Atlas maps architecture, dependencies and plain-English explanations from a real GitHub URL or local checkout. Import a repo to unlock this view."
-      action={
-        <button className="btn primary" onClick={onConnect}>
-          Connect a repository
-        </button>
-      }
-    />
-  );
-}
 
-export function EmptyState({
-  title,
-  description,
-  action,
-  icon,
-}: {
-  title: string;
-  description: string;
-  action?: ReactNode;
-  icon?: ReactNode;
-}) {
-  return (
-    <div className="empty-state">
-      {icon ? <div className="empty-state-icon">{icon}</div> : <div className="empty-state-circle">∅</div>}
-      <h3>{title}</h3>
-      <p>{description}</p>
-      {action && <div className="empty-state-action">{action}</div>}
-    </div>
-  );
-}
 
-export function ErrorState({
-  title = "An error occurred",
-  message,
-  onRetry,
-}: {
-  title?: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="error-state" role="alert">
-      <div className="error-icon" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <AlertTriangle size={18} />
-      </div>
-      <div className="error-body">
-        <h4>{title}</h4>
-        <p>{message}</p>
-      </div>
-      {onRetry && (
-        <button className="btn ghost" onClick={onRetry}>
-          Retry
-        </button>
-      )}
-    </div>
-  );
-}
 
 export function ConfirmationDialog({
   isOpen,
@@ -318,8 +205,3 @@ export function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-export function shortPath(p: string): string {
-  const parts = p.split("/");
-  if (parts.length <= 3) return p;
-  return `${parts[0]}/…/${parts[parts.length - 1]}`;
-}

@@ -1,0 +1,4 @@
+# Atlas is a client-side app; every route is served as the SPA shell.
+User-agent: *
+Allow: /
+Disallow: /api/

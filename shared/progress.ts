@@ -7,7 +7,7 @@ import type { Analysis } from "./types";
 
 export type StageId = "fetch" | "crawl" | "parse" | "resolve" | "issues" | "docs";
 
-export interface StageSpec {
+interface StageSpec {
   id: StageId;
   label: string;
   /** Shown while this stage is the active one. */
@@ -38,7 +38,7 @@ export interface JobCounters {
   docs: number;
 }
 
-export type JobStatus = "running" | "done" | "error";
+type JobStatus = "running" | "done" | "error";
 
 /** The snapshot served by `GET /api/jobs/:id`. */
 export interface JobSnapshot {

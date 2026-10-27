@@ -29,4 +29,3 @@ export const CACHE_DIR = path.join(DATA_DIR, "cache");
  * Embedded Postgres data directory (local mode). Production connects through
  * `DATABASE_URL` (Supabase) and touches nothing here.
  */
-export const PG_DIR = path.join(DATA_DIR, "pg");

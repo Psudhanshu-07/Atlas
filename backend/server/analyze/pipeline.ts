@@ -46,7 +46,7 @@ export interface PipelineResult {
 const TEST_RE = /(^|\/)(__tests__|__mocks__|tests?|specs?)(\/|$)|\.(test|spec|spec\.\w+)\.[a-z]+$/i;
 const TEST_FILE_RE = /(^|\/)(test_[^/]+|[^/]+_test)\.[a-z]+$/i;
 
-export function isTestPath(p: string): boolean {
+function isTestPath(p: string): boolean {
   return TEST_RE.test(p) || TEST_FILE_RE.test(p) || /(^|\/)conftest\.py$/.test(p);
 }
 
@@ -119,7 +119,7 @@ const LAYER_RULES: Array<{ id: string; test: (p: string) => boolean }> = [
   },
 ];
 
-export const LAYER_META: Record<string, { name: string; description: string }> = {
+const LAYER_META: Record<string, { name: string; description: string }> = {
   presentation: {
     name: "Presentation",
     description: "UI components, pages and styles.",
@@ -145,7 +145,7 @@ export const LAYER_META: Record<string, { name: string; description: string }> =
   app: { name: "Application", description: "Top-level application wiring." },
 };
 
-export function layerOf(relPath: string): string {
+function layerOf(relPath: string): string {
   for (const rule of LAYER_RULES) {
     if (rule.test(relPath)) return rule.id;
   }
