@@ -153,7 +153,7 @@ export const requireAdmin: RequestHandler<any> = (req, res, next) => {
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 /** Fixed-window limiter for the auth and OAuth endpoints. */
-function allow(key: string, max: number, windowMs: number): boolean {
+export function allow(key: string, max: number, windowMs: number): boolean {
   const now = Date.now();
   if (buckets.size > 5_000) {
     for (const [k, v] of buckets) if (v.resetAt <= now) buckets.delete(k);

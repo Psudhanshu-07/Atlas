@@ -14,6 +14,7 @@ import type { Express, Response } from "express";
 import type { ApiError } from "../../shared/types";
 import { askQuestion } from "./analyze/explain";
 import * as db from "./db";
+import { allow } from "./auth";
 import { loadAnalysisFor } from "./store";
 import type { RequestHandler } from "express";
 
@@ -71,7 +72,14 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
       jsonError(res, 400, "Question is too long (4000 characters max).");
       return;
     }
+    // Every ask costs a provider call from the server's key, so the endpoint
+    // carries a per-user budget: 30 answers per 5 minutes is far above normal
+    // conversation pace and stops runaway loops from draining credits.
     const userId = req.user!.id;
+    if (!allow(`ask:${userId}`, 30, 5 * 60_000)) {
+      jsonError(res, 429, "Too many questions in a row. Give Atlas a minute to catch up.");
+      return;
+    }
     const analysis = await loadAnalysisFor(userId, req.params.id);
     if (!analysis) {
       jsonError(res, 404, "Analysis not found.");
@@ -137,7 +145,9 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
     res.json({ ...answer, conversationId: conversation.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!res.headersSent) res.status(500).json({ error: message } satisfies ApiError);
+    console.error("[chat] ask failed:", message);
+    // Same policy as the API's global error handler: internals stay in the log.
+    if (!res.headersSent) res.status(500).json({ error: "Something went wrong while answering. Try again." } satisfies ApiError);
   }
 };
 

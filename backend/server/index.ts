@@ -21,7 +21,7 @@ import { startAnalysis } from "./analyze/index";
 import { getOwnedJob } from "./jobs";
 import { buildFileDetail } from "./analyze/explain";
 import { askHandler, registerChatRoutes } from "./chat";
-import { registerAuthRoutes, requireAdmin, requireAuth } from "./auth";
+import { allow, registerAuthRoutes, requireAdmin, requireAuth } from "./auth";
 import { assertLocalSourceAllowed } from "./repos";
 import { dashboardFor, deleteAnalysisFor, listAnalysesFor, loadAnalysisFor, setThemeFor, themeFor } from "./store";
 import { PROJECT_ROOT } from "./paths";
@@ -95,6 +95,25 @@ app.use((_req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  // Defense in depth for the served SPA (same-origin mode): scripts only from
+  // this origin, styles/fonts from Google Fonts, and images from any https
+  // source the app legitimately shows (GitHub avatars). connect-src allows
+  // the API's own origin and any https API the build-time VITE_API_BASE
+  // points at; everything else falls back to default-src 'self'.
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+  );
   next();
 });
 app.use(express.json({ limit: "2mb" }));
@@ -112,6 +131,14 @@ app.use(
 
 function fail(res: express.Response, status: number, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
+  // Client-caused (4xx) refusals stay readable on purpose — they tell the user
+  // what to fix. Server-side failures are logged whole and answered generically
+  // so internals (paths, SQL, provider responses) never reach the client.
+  if (status >= 500) {
+    console.error("[api] server error:", message);
+    res.status(status).json({ error: "Something went wrong on the server. Try again." } satisfies ApiError);
+    return;
+  }
   res.status(status).json({ error: message } satisfies ApiError);
 }
 
@@ -259,6 +286,13 @@ app.delete("/api/analyses/:id", requireAuth, async (req, res) => {
 });
 
 app.get("/api/analyses/:id/file", requireAuth, async (req, res) => {
+  // Opening a file triggers an AI summary in `buildFileDetail` — one provider
+  // call per view. Rapid browsing burns credits, so a per-user budget caps it:
+  // 90 explanations per 5 minutes covers normal navigation far above need.
+  if (!allow(`explain:${req.user!.id}`, 90, 5 * 60_000)) {
+    res.status(429).json({ error: "Too many file opens in a row. Take a short breath and try again." } satisfies ApiError);
+    return;
+  }
   try {
     const analysis = await loadAnalysisFor(req.user!.id, req.params.id);
     if (!analysis) {
@@ -314,7 +348,9 @@ app.use("/api", (_req, res) => {
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = err instanceof Error ? err.message : String(err);
   console.error("[api] unhandled error:", message);
-  if (!res.headersSent) res.status(500).json({ error: message } satisfies ApiError);
+  // 500 payloads stay generic: raw messages can carry internals (SQL text,
+  // filesystem paths, provider URLs). The full message is in the server log.
+  if (!res.headersSent) res.status(500).json({ error: "Something went wrong on the server. Try again." } satisfies ApiError);
 });
 
 // Serve the built web client when present (production mode).
