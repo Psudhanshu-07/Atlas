@@ -967,12 +967,74 @@ async function main(): Promise<void> {
       check("tarball checkout works", false, err instanceof Error ? err.message : String(err));
     }
 
+    /* ------------------------------------ 8. export and self-deletion lifecycle */
+    section("Account export and self-deletion");
+
+    const ready = await anon.request("GET", "/api/health/ready");
+    check(
+      "readiness probe reports the database as reachable (200)",
+      ready.status === 200 && ready.body?.ready === true,
+      JSON.stringify(ready.body),
+    );
+
+    const erin = new Session();
+    await erin.request("POST", "/api/auth/register", {
+      email: "erin@isolation.test",
+      password: "correct-horse-1",
+      name: "Erin Evidence",
+    });
+    await erin.request("POST", "/api/chats", { analysisId: null, title: "Export me" });
+
+    const exported = await erin.request("GET", "/api/auth/export");
+    const exportText = JSON.stringify(exported.body ?? {});
+    check(
+      "export returns the account data as JSON (200)",
+      exported.status === 200 &&
+        exported.body?.format === "atlas-account-export-v1" &&
+        exported.body?.user?.email === "erin@isolation.test" &&
+        Array.isArray(exported.body?.chats) &&
+        exported.body.chats.length >= 1,
+      exportText.slice(0, 300),
+    );
+    check(
+      "export never contains credential material",
+      !exportText.includes("password_hash") && !exportText.includes("password_salt"),
+    );
+
+    const wrongDelete = await erin.request("DELETE", "/api/auth/account", { password: "not-it" });
+    check("deletion with a wrong password → 401", wrongDelete.status === 401, JSON.stringify(wrongDelete.body));
+    check(
+      "the account survives the failed deletion attempt",
+      (await erin.request("GET", "/api/auth/me")).body?.user?.email === "erin@isolation.test",
+    );
+
+    const deleted = await erin.request("DELETE", "/api/auth/account", { password: "correct-horse-1" });
+    check("deletion with the right password → 200", deleted.status === 200, JSON.stringify(deleted.body));
+    check(
+      "the session is dead after deletion (user null)",
+      (await erin.request("GET", "/api/auth/me")).body?.user === null,
+    );
+    check(
+      "the export route now rejects the dead session (401)",
+      (await erin.request("GET", "/api/auth/export")).status === 401,
+    );
+    const reloginErin = await erin.request("POST", "/api/auth/login", {
+      email: "erin@isolation.test",
+      password: "correct-horse-1",
+    });
+    check(
+      "the deleted account cannot sign back in (401)",
+      reloginErin.status === 401,
+      JSON.stringify(reloginErin.body),
+    );
+
     /* -------------------------------------------------------------- summary */
     console.log(`\n${passed} checks passed, ${failures.length} failed`);
     if (failures.length > 0) {
       console.log("Failures:");
       for (const f of failures) console.log(`  - ${f}`);
     }
+
     assert.equal(failures.length, 0, `${failures.length} security checks failed`);
   } finally {
     // tsx spawns the real server as a child — kill the whole tree on Windows.

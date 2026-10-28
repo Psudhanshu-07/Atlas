@@ -84,10 +84,12 @@ npm start                 # http://localhost:3001
 
 Atlas is a multi-user server, and the server — never the UI — enforces the boundary.
 
-- **Identity** comes from GitHub and nothing else (`read:user user:email`). Listing your
+- **Identity** comes from e-mail + password or GitHub OAuth (`read:user user:email`). Listing your
   repositories and reading private ones needs the additional `repo` grant; the Connect
   screen asks for it and Settings shows whether it is granted. Revoke it at any time under
-  GitHub's authorized applications.
+  GitHub's authorized applications. Every account can export its data
+  (`GET /api/auth/export`) or permanently delete itself from Settings → Data, with
+  re-authentication required either way.
 - **Sessions** are 256-bit random tokens in an HttpOnly, SameSite=Lax cookie (`ca_sid`,
   `Secure` over HTTPS). Only the SHA-256 hash is stored server-side. Sessions last 30
   days; Settings lists every active session and can sign the others out.
@@ -256,7 +258,10 @@ Atlas/
 <summary><b>Public</b></summary>
 
 - `GET /api/health` → `{ok, aiEnabled, model, provider}`
+- `GET /api/health/ready` → `200 {ready:true}` when the database answers, `503` otherwise (readiness probe)
 - `GET /api/auth/providers` → which sign-in methods this server has configured
+- `POST /api/auth/register` `{email, password, name?}` → creates an account and signs in
+- `POST /api/auth/login` `{email, password}` → signs in
 - `GET /api/auth/github` → start the OAuth flow (`?scopes=repos` asks for repository access)
 - `GET /api/auth/github/callback` → OAuth redirect target; creates the session
 - `POST /api/auth/logout`
@@ -267,7 +272,12 @@ Atlas/
 <summary><b>Authenticated</b> — session cookie; every query scoped to the session's account</summary>
 
 - `GET /api/auth/me`, `POST /api/auth/profile`
+- `POST /api/auth/password` `{current, next}` · `POST /api/auth/github/disconnect`
+- `POST /api/auth/avatar` (multipart `image`), `DELETE /api/auth/avatar`
 - `GET /api/auth/sessions`, `DELETE /api/auth/sessions` (other sessions), `DELETE /api/auth/sessions/:id`
+- `GET /api/auth/export` → full personal-data JSON (profile, analyses, repos, sessions, chats)
+- `DELETE /api/auth/account` `{password | confirmEmail}` → deletes the account; all rows cascade
+- `GET /api/chats`, `POST /api/chats`, `GET|PATCH|DELETE /api/chats/:id`, `DELETE /api/chats`, `GET /api/chats/export`
 - `GET /api/github/repos`
 - `POST /api/analyze` `{source, refresh?, branch?}` → `202 {jobId}`
 - `GET /api/jobs/:id` → `{status, progress, message, stages[], counters, result?}`
@@ -367,9 +377,10 @@ The same check can be triggered from the Actions tab with
 
 - **One process, one database file.** `node:sqlite` keeps this to a single instance;
   running several replicas against a shared volume is not supported.
-- **Sign-in requires GitHub.** No local account, no password reset flow, no e-mail
-  delivery anywhere in the project. Losing access to the GitHub account means losing
-  the workspace, by design.
+- **Password recovery is not implemented.** There is no e-mail delivery anywhere in the
+  project, so a forgotten password cannot be reset — use GitHub sign-in if the account
+  has it linked, or create a new account. Losing access to both the password and the
+  linked GitHub account means losing the workspace, by design.
 - **Workspace packages** referenced by bare name only resolve when `package.json`
   declares them under `packages/`. Rust crate-internal modules resolve as external.
   Measured on `vercel/next.js`: 378 of 1,836 edges are cross-module.

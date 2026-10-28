@@ -115,7 +115,7 @@ export function SettingsView({
           )}
           {section === "github" && <GithubSection user={user} onShowToast={onShowToast} onUserChanged={onUserChanged} />}
           {section === "ai" && <AiSection user={user} onShowToast={onShowToast} />}
-          {section === "data" && <DataSection onShowToast={onShowToast} />}
+          {section === "data" && <DataSection user={user} onShowToast={onShowToast} onSignOut={onSignOut} />}
         </div>
       </div>
     </div>

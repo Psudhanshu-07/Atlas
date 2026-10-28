@@ -101,6 +101,11 @@ function form(data: FormData): RequestInit {
   return { method: "POST", body: data };
 }
 
+/** Absolute URL for an API path — for callers that need the raw Response (downloads). */
+export function apiUrl(path: string): string {
+  return API_BASE + path;
+}
+
 export const api = {
   health: () => request<{ ok: boolean; aiEnabled: boolean; model: string; provider?: string }>("/api/health"),
 
@@ -232,4 +237,24 @@ export const api = {
     request<{ ok: boolean }>(`/api/chats/${conversationId}`, { method: "DELETE" }),
 
   deleteAllChats: () => request<{ deleted: number }>("/api/chats", { method: "DELETE" }),
+
+  /* ---------------------------------------- account export and deletion */
+
+  /** URL of the full personal-data export (fetch it as a JSON download). */
+  exportAccountUrl: () => apiUrl("/api/auth/export"),
+
+  /**
+   * Permanently delete the account and everything it owns. Re-authentication
+   * is required: `password` for e-mail accounts, `confirmEmail` for
+   * GitHub-only accounts.
+   */
+  deleteAccount: (reauth: { password?: string; confirmEmail?: string }) =>
+    request<{ ok: boolean }>(
+      "/api/auth/account",
+      {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(reauth),
+      },
+    ),
 };

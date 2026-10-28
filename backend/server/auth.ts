@@ -1,9 +1,9 @@
-// GitHub identity, sessions, and the middleware that guards every workspace
+// Identity, sessions, and the middleware that guards every workspace
 // route.
 //
-// GitHub is the only sign-in method. The OAuth callback is the only place a
-// session is created, so account creation and e-mail ownership come from a
-// single source we don't have to verify ourselves.
+// Sign-in is e-mail + password or GitHub OAuth. The OAuth callback and the
+// register/login handlers are the only places a session is created, so a
+// session always comes from a credential we verified ourselves.
 //
 // Sessions are 256-bit random tokens; only the SHA-256 hash is stored. The
 // token travels in an HttpOnly, SameSite=Lax cookie and never reaches
@@ -20,6 +20,7 @@ import multer from "multer";
 import type { ApiError, GithubRepo } from "../../shared/types";
 import * as db from "./db";
 import { DATA_DIR } from "./paths";
+import { themeFor } from "./store";
 import { exchangeCode, fetchProfile, githubApiBase, githubHeaders, githubWebBase, type GithubProfile } from "./github";
 
 interface AuthUser {
@@ -501,6 +502,111 @@ export function registerAuthRoutes(app: Express): void {
       jsonError(res, 404, "Session not found.");
       return;
     }
+    res.json({ ok: true });
+  });
+
+  /* -------------------------------------------- account export and deletion */
+
+  /**
+   * Full personal data export (GDPR-style right of access): profile,
+   * preferences, analyses, linked repositories, sessions and every chat with
+   * its messages. Secrets (password hash, GitHub token) are never included.
+   */
+  app.get("/api/auth/export", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const user = await db.findUserById(userId);
+    if (!user) {
+      jsonError(res, 404, "Account not found.");
+      return;
+    }
+    const conversations = await db.listConversationRows(userId, { limit: 200 });
+    const chats = await Promise.all(
+      conversations.map(async (c) => ({
+        id: c.id,
+        title: c.title,
+        analysisId: c.analysis_id,
+        createdAt: new Date(c.created_at).toISOString(),
+        updatedAt: new Date(c.updated_at).toISOString(),
+        messages: (await db.listChatMessageRows(c.id)).map((m) => ({
+          role: m.role,
+          content: m.content,
+          sources: m.sources ?? undefined,
+          mode: m.mode ?? undefined,
+          createdAt: new Date(m.created_at).toISOString(),
+        })),
+      })),
+    );
+    res.json({
+      exportedAt: new Date().toISOString(),
+      format: "atlas-account-export-v1",
+      user: {
+        email: user.email,
+        name: user.name,
+        bio: user.bio,
+        role: user.role,
+        isAdmin: Boolean(user.is_admin),
+        githubLogin: user.github_login,
+        createdAt: new Date(user.created_at).toISOString(),
+      },
+      preferences: { theme: await themeFor(userId) },
+      analyses: await db.listAnalysisRows(userId),
+      repositories: await db.listLinkedRepos(userId),
+      sessions: (await db.listSessionsFor(userId)).map((s) => ({
+        createdAt: new Date(s.created_at).toISOString(),
+        lastSeenAt: new Date(s.last_seen_at).toISOString(),
+        expiresAt: new Date(s.expires_at).toISOString(),
+        userAgent: s.user_agent ?? null,
+      })),
+      chats,
+    });
+  });
+
+  /**
+   * Delete the account and everything it owns. Foreign keys cascade from
+   * `users`, so one row removal takes sessions, analyses, linked repos,
+   * preferences, GitHub tokens and chat history with it.
+   *
+   * Re-authentication is required: the account password when one exists,
+   * otherwise the typed e-mail address (GitHub-only accounts have no secret
+   * to re-enter).
+   */
+  app.delete("/api/auth/account", requireAuth, async (req, res) => {
+    if (!allow(`accountdelete:${req.ip ?? "?"}`, 5, 60 * 60_000)) {
+      jsonError(res, 429, "Too many attempts. Try again in an hour.");
+      return;
+    }
+    const user = await db.findUserById(req.user!.id);
+    if (!user) {
+      jsonError(res, 404, "Account not found.");
+      return;
+    }
+    const credential = await db.passwordCredential(user.id);
+    if (credential) {
+      const password = typeof req.body?.password === "string" ? req.body.password : "";
+      if (!safeEqualHex(credential.hash, hashPassword(password, credential.salt))) {
+        jsonError(res, 401, "Your password is incorrect.");
+        return;
+      }
+    } else {
+      const typed = typeof req.body?.confirmEmail === "string" ? req.body.confirmEmail.trim() : "";
+      if (typed.toLowerCase() !== user.email.toLowerCase()) {
+        jsonError(res, 401, `Type your e-mail (${user.email}) to confirm deletion.`);
+        return;
+      }
+    }
+
+    // Local avatar uploads live on disk; remove the file before the row goes.
+    if (user.avatar_url?.startsWith("/avatars/")) {
+      try {
+        fs.unlinkSync(path.join(DATA_DIR, "avatars", user.avatar_url.slice("/avatars/".length)));
+      } catch {
+        // Missing file is fine — the row removal below is what matters.
+      }
+    }
+
+    await db.deleteUserRow(user.id);
+    clearSessionCookie(req, res);
+    console.log(`[FATAL] account ${user.id} (${user.email}) deleted itself`);
     res.json({ ok: true });
   });
 

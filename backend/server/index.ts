@@ -24,6 +24,7 @@ import { askHandler, registerChatRoutes } from "./chat";
 import { allow, registerAuthRoutes, requireAdmin, requireAuth } from "./auth";
 import { assertLocalSourceAllowed } from "./repos";
 import { dashboardFor, deleteAnalysisFor, listAnalysesFor, loadAnalysisFor, setThemeFor, themeFor } from "./store";
+import { closeDb, rawQuery } from "./db";
 import { PROJECT_ROOT } from "./paths";
 import type { ApiError } from "../../shared/types";
 
@@ -160,6 +161,21 @@ registerAuthRoutes(app);
 app.get("/api/health", (_req, res) => {
   const cfg = aiConfig();
   res.json({ ok: true, aiEnabled: cfg.enabled, model: cfg.model, provider: cfg.provider });
+});
+
+/**
+ * Readiness: unlike /api/health (liveness), this proves the process can
+ * actually serve traffic — the database answers. Deploy platforms and load
+ * balancers gate on this so a booting instance never receives requests.
+ */
+app.get("/api/health/ready", async (_req, res) => {
+  try {
+    await rawQuery("SELECT 1", []);
+    res.json({ ready: true });
+  } catch (err) {
+    console.error("[FATAL] readiness check failed:", err);
+    res.status(503).json({ ready: false, error: "Database is not reachable." });
+  }
 });
 
 /* --------------------------------------------------- global configuration */
@@ -370,9 +386,39 @@ if (fs.existsSync(distDir)) {
 
 const requestedPort = Number(process.env.PORT);
 const port = Number.isInteger(requestedPort) && requestedPort > 0 ? requestedPort : 3001;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`CodeAtlas API listening on http://localhost:${port} (AI ${aiConfig().enabled ? "on" : "off"})`);
 });
+
+// Graceful shutdown: stop accepting connections, drain in-flight requests,
+// close the database, then exit. Render/Vercel send SIGTERM before killing
+// the process; without this, active requests die mid-flight on every deploy.
+let shuttingDown = false;
+const shutdown = (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[FATAL] received ${signal}, draining connections…`);
+  const forceExit = setTimeout(() => {
+    console.error("[FATAL] shutdown timed out after 10s, forcing exit");
+    server.closeAllConnections?.();
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+  server.close(async () => {
+    try {
+      await closeDb();
+    } catch (err) {
+      console.error("[FATAL] error closing database during shutdown:", err);
+    }
+    clearTimeout(forceExit);
+    process.exit(0);
+  });
+  // Drop idle keep-alive sockets so close() can fire, while requests already
+  // in flight finish normally.
+  server.closeIdleConnections?.();
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 // Crash safety net: log with a stable marker so host log-based alerting
 // (Render/Vercel log drains) can page on real process-level faults

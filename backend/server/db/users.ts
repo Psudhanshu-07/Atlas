@@ -246,3 +246,12 @@ export async function setTheme(userId: number, theme: "dark" | "light"): Promise
     theme,
   );
 }
+
+/**
+ * Deletes an account. Every child table references `users(id)` with
+ * ON DELETE CASCADE, so sessions, analyses, linked repos, preferences,
+ * GitHub tokens and chat history are removed in the same statement.
+ */
+export async function deleteUserRow(userId: number): Promise<void> {
+  await run("DELETE FROM users WHERE id = ?", userId);
+}
