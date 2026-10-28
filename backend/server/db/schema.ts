@@ -97,4 +97,14 @@ export const MIGRATIONS: string[][] = [
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_client ON chat_messages (conversation_id, client_msg_id)
      WHERE client_msg_id IS NOT NULL`,
   ],
+  // Product analytics: coarse, privacy-conscious counters. No user id, no IP,
+  // no session token and no payload — just an event name and when it happened.
+  [
+    `CREATE TABLE IF NOT EXISTS telemetry (
+    id         SERIAL PRIMARY KEY,
+    event      TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+    `CREATE INDEX IF NOT EXISTS idx_telemetry_event ON telemetry (event, created_at DESC)`,
+  ],
 ];

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Analysis, DashboardData, SessionUser } from "../../../../shared/types";
 import { buildRepoUnderstanding } from "../../../../shared/understand";
+import { SetupChecklist } from "../onboarding/SetupChecklist";
 
 interface Props {
   analysis: Analysis | null;
@@ -43,6 +44,7 @@ export function OverviewDashboard({
   onFocusModule,
   onAskAbout,
   onAddRepo,
+  onOpenRepos,
   onOpenDependencies,
   onOpenInsights,
 }: Props) {
@@ -91,6 +93,10 @@ export function OverviewDashboard({
 
         {/* Empty State */}
         <div className="p-space-lg max-w-4xl mx-auto w-full my-12">
+          <SetupChecklist
+            stats={{ repositories: ws?.repositories ?? 0, analyses: ws?.analyses ?? 0 }}
+            onGoTo={(view) => (view === "repositories" ? onOpenRepos() : undefined)}
+          />
           <div className="bg-surface-container-low border border-surface-variant rounded-lg p-8 flex flex-col items-center text-center gap-4">
             <div className="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center text-secondary border border-surface-variant">
               <span className="material-symbols-outlined text-[24px]">folder_data</span>

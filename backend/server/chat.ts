@@ -15,6 +15,7 @@ import type { ApiError } from "../../shared/types";
 import { askQuestion } from "./analyze/explain";
 import * as db from "./db";
 import { allow } from "./auth";
+import { recordTelemetry } from "./db/telemetry";
 import { loadAnalysisFor } from "./store";
 import type { RequestHandler } from "express";
 
@@ -141,6 +142,9 @@ export const askHandler: RequestHandler<any> = async (req, res) => {
       clientMsgId: clientMsgId ? `${clientMsgId}:a` : null,
     });
     await db.touchConversationRow(conversation.id);
+
+    // One row per generated answer — the concrete AI-adoption signal.
+    void recordTelemetry("ai_message").catch(() => {});
 
     res.json({ ...answer, conversationId: conversation.id });
   } catch (err) {

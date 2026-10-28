@@ -278,6 +278,7 @@ Atlas/
 - `GET /api/auth/export` → full personal-data JSON (profile, analyses, repos, sessions, chats)
 - `DELETE /api/auth/account` `{password | confirmEmail}` → deletes the account; all rows cascade
 - `GET /api/chats`, `POST /api/chats`, `GET|PATCH|DELETE /api/chats/:id`, `DELETE /api/chats`, `GET /api/chats/export`
+- `POST /api/telemetry` `{event}` → records a product-privacy event (`help_opened`, `onboarding_dismissed`); allowlist-checked and rate-limited
 - `GET /api/github/repos`
 - `POST /api/analyze` `{source, refresh?, branch?}` → `202 {jobId}`
 - `GET /api/jobs/:id` → `{status, progress, message, stages[], counters, result?}`
@@ -293,10 +294,26 @@ Atlas/
 <summary><b>Admin only</b></summary>
 
 - `POST /api/config` → global engine settings (AI provider and key, crawler rules)
+- `GET /api/ops/summary` → database readiness, AI status, row counts, adoption/event telemetry and running analyses, for monitoring dashboards
 
 Unknown ids and other people's ids both answer `404`, on purpose.
 
 </details>
+
+## 📄 In-product help, onboarding and analytics
+
+- **Guided setup** — a dismissible "Getting started" checklist on the Overview
+  page tracks connect-repo → first analysis → first AI answer and hides itself
+  once complete.
+- **Help & FAQ** — the sidebar compass (or `?` shortcuts dialog) opens an in-app
+  FAQ with troubleshooting and support links; users never need to find a README.
+- **Operational visibility** — `GET /api/ops/summary` (admin) exposes database
+  readiness, AI status, scale and adoption counters for any monitor;
+  `docs/OPERATIONS.md` is the runbook (backups, rollback, failure signatures).
+- **Product analytics** — privacy-conscious event counting: rows are
+  `(event, timestamp)` with no user ids, IPs or payloads. Server-reported
+  events cover registration, analysis start/completion/failure and AI answers;
+  the client reports `help_opened` and `onboarding_dismissed`.
 
 ## ✅ Testing
 

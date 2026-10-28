@@ -257,4 +257,10 @@ export const api = {
         body: JSON.stringify(reauth),
       },
     ),
+
+  /* --------------------------------------------------------- telemetry */
+
+  /** Report a product event. Fire-and-forget; errors never surface to the UI. */
+  track: (event: string) =>
+    request<{ ok: boolean }>("/api/telemetry", post({ event })).catch(() => null),
 };

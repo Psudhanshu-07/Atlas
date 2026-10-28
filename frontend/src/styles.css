@@ -5015,3 +5015,179 @@ h4 {
   border-top: 1px solid var(--border-subtle);
   padding-top: 10px;
 }
+
+/* ------------------------------------------------- onboarding checklist */
+
+.setup-checklist {
+  background: var(--surface-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.setup-checklist-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.setup-checklist-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.setup-checklist-head svg {
+  color: var(--accent);
+}
+
+.setup-dismiss {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+.setup-dismiss:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.setup-steps li svg {
+  margin-top: 2px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.setup-steps li.done svg {
+  color: var(--success);
+}
+
+.setup-steps li.done .setup-label {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.setup-label {
+  display: block;
+  font-weight: 600;
+}
+
+.setup-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.setup-cta {
+  font: inherit;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.setup-cta:hover {
+  background: var(--accent-2);
+}
+
+/* ----------------------------------------------- help modal */
+
+.help-dialog {
+  max-width: 620px;
+  max-height: 80vh;
+}
+
+.help-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.help-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.help-faq {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.help-faq-item dt {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.help-faq-item dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.help-trouble {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.help-trouble strong {
+  color: var(--text-primary);
+}
+
+.help-trouble em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.help-support {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.help-support a {
+  color: var(--info);
+}

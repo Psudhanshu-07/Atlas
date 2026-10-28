@@ -18,13 +18,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { aiConfig, loadSettings, saveSettings } from "./ai";
 import { startAnalysis } from "./analyze/index";
-import { getOwnedJob } from "./jobs";
+import { getOwnedJob, runningJobCount } from "./jobs";
 import { buildFileDetail } from "./analyze/explain";
 import { askHandler, registerChatRoutes } from "./chat";
 import { allow, registerAuthRoutes, requireAdmin, requireAuth } from "./auth";
 import { assertLocalSourceAllowed } from "./repos";
 import { dashboardFor, deleteAnalysisFor, listAnalysesFor, loadAnalysisFor, setThemeFor, themeFor } from "./store";
-import { closeDb, rawQuery } from "./db";
+import { recordTelemetry, telemetryCounts, TELEMETRY_EVENTS } from "./db/telemetry";
+import { closeDb, count, rawQuery } from "./db";
 import { PROJECT_ROOT } from "./paths";
 import type { ApiError } from "../../shared/types";
 
@@ -236,6 +237,7 @@ app.post("/api/analyze", requireAuth, (req, res) => {
     // Deterministic refusals (path escape) fail the request before a job opens.
     assertLocalSourceAllowed(source);
     const job = startAnalysis(source, { refresh, branch, ownerUserId: req.user!.id });
+    void recordTelemetry("analysis_started").catch(() => {});
     res.status(202).json({ jobId: job.id, source: job.source });
   } catch (err) {
     fail(res, 400, err);
@@ -341,7 +343,61 @@ app.post("/api/analyses/:id/ask", requireAuth, askHandler);
 
 registerChatRoutes(app, requireAuth);
 
-/* -------------------------------------------------------------- preferences */
+/* ------------------------------------------------- telemetry (client events) */
+
+// Client product events (help_opened, onboarding_dismissed). Auth-gated,
+// rate-limited, allowlist-checked in the DB layer: an anonymous caller gets
+// 401, an authed one is capped at 30 events/minute, and unknown names are
+// dropped, so this endpoint can never become a write amplifier.
+app.post("/api/telemetry", requireAuth, (req, res) => {
+  const event = typeof req.body?.event === "string" ? req.body.event : "";
+  if (!TELEMETRY_EVENTS.includes(event as (typeof TELEMETRY_EVENTS)[number])) {
+    res.status(400).json({ error: `Unknown telemetry event.` } satisfies ApiError);
+    return;
+  }
+  if (!allow(`tlm:${req.user!.id}`, 30, 60_000)) {
+    res.status(429).json({ error: "Too many events. Try again shortly." } satisfies ApiError);
+    return;
+  }
+  void recordTelemetry(event)
+    .then(() => res.json({ ok: true }))
+    .catch(() => res.status(500).json({ error: "Could not record the event." } satisfies ApiError));
+});
+
+/* ------------------------------------------------------ ops (admin only) */
+
+// Operational visibility: one dashboardable snapshot of the moving parts —
+// database reachability, AI configuration, product scale, and adoption
+// counters. Generic enough to be scraped by any monitor; 403 for non-admins.
+app.get("/api/ops/summary", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    // Health: SELECT 1 proves the DB is answering right now.
+    let dbReady = true;
+    try {
+      await rawQuery("SELECT 1", []);
+    } catch {
+      dbReady = false;
+    }
+    const [users, analyses, chats, telemetry, events] = await Promise.all([
+      dbReady ? count("SELECT COUNT(*) FROM users") : 0,
+      dbReady ? count("SELECT COUNT(*) FROM analyses") : 0,
+      dbReady ? count("SELECT COUNT(*) FROM chat_conversations") : 0,
+      dbReady ? telemetryCounts() : [],
+      aiConfig(),
+    ]);
+    // In-memory, per-process: transient analysis activity, not durable state.
+    res.json({
+      dbReady,
+      aiEnabled: events.enabled,
+      provider: events.provider,
+      model: events.model,
+      processes: "single (in-memory job registry, reset on restart)",
+      counts: { users, analyses, chatConversations: chats, runningAnalyses: runningJobCount(), telemetryEvents: telemetry },
+    });
+  } catch (err) {
+    fail(res, 500, err);
+  }
+});
 
 app.get("/api/preferences", requireAuth, async (req, res) => {
   res.json({ theme: await themeFor(req.user!.id) });

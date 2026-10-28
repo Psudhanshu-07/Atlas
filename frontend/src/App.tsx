@@ -25,6 +25,7 @@ import { SettingsView } from "./components/pages/SettingsView";
 import { AnalysisProgress } from "./components/AnalysisProgress";
 import { CommandPalette } from "./components/modals/CommandPalette";
 import { ShortcutsModal } from "./components/modals/ShortcutsModal";
+import { HelpModal } from "./components/modals/HelpModal";
 import { ToastContainer } from "./components/ui/Toast";
 import { ConfirmationDialog, Logo } from "./components/ui";
 
@@ -32,6 +33,7 @@ export default function App() {
   const ws = useWorkspace();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const {
@@ -234,6 +236,7 @@ export default function App() {
         onToggleTheme={ws.toggleTheme}
         onSignOut={ws.logout}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
         onOpenCommandPalette={() => setPaletteOpen(true)}
         mobileNavOpen={mobileNavOpen}
       />
@@ -286,6 +289,7 @@ export default function App() {
       />
 
       <ShortcutsModal isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
 
       <ConfirmationDialog
         isOpen={Boolean(ws.deleteTarget)}

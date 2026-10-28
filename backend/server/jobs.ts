@@ -7,6 +7,7 @@
 import type { Analysis } from "../../shared/types";
 import { plural } from "../../shared/format";
 import { STAGES, type JobCounters, type JobSnapshot, type StageId, type StageState } from "../../shared/progress";
+import { recordTelemetry } from "./db/telemetry";
 
 export type Job = JobSnapshot;
 
@@ -110,14 +111,18 @@ export function finishJob(job: Job, result: { analysis: Analysis; cached: boolea
     docs: result.analysis.docs.length,
   };
   job.message = `Mapped ${plural(files, "file")} across ${plural(clusters, "module")}.`;
+  // One counter row per settled analysis; a DB failure must never fail a job.
+  void recordTelemetry("analysis_completed").catch(() => {});
 }
 
 export function failJob(job: Job, err: unknown): void {
+  if (job.status === "error") return; // the stale-job reaper and the pipeline can both call this; record once
   const active = job.stages.find((s) => s.state === "active");
   if (active) active.state = "done";
   job.status = "error";
   job.error = err instanceof Error ? err.message : String(err);
   job.message = "Analysis failed.";
+  void recordTelemetry("analysis_failed").catch(() => {});
 }
 
 /**
@@ -144,4 +149,12 @@ export function getOwnedJob(ownerUserId: number, id: string): Job | undefined {
   if (jobOwners.get(id) !== ownerUserId) return undefined;
   reapExpiredJobs();
   return jobs.get(id);
+}
+
+/** How many analyses are still running in this process, for /api/ops/summary. */
+export function runningJobCount(): number {
+  reapExpiredJobs();
+  let n = 0;
+  for (const job of jobs.values()) if (job.status === "running") n += 1;
+  return n;
 }

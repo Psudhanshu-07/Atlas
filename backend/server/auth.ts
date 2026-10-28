@@ -19,6 +19,7 @@ import type { Express, Request, RequestHandler, Response } from "express";
 import multer from "multer";
 import type { ApiError, GithubRepo } from "../../shared/types";
 import * as db from "./db";
+import { recordTelemetry } from "./db/telemetry";
 import { DATA_DIR } from "./paths";
 import { themeFor } from "./store";
 import { exchangeCode, fetchProfile, githubApiBase, githubHeaders, githubWebBase, type GithubProfile } from "./github";
@@ -323,6 +324,7 @@ export function registerAuthRoutes(app: Express): void {
       isAdmin: false,
     });
     await issueSession(req, res, created.id);
+    void recordTelemetry("account_created").catch(() => {});
     res.json({ user: db.toSessionUser(created, await db.githubRepoAccess(created.id)) });
   });
 

@@ -37,6 +37,7 @@ interface Props {
   onToggleTheme: () => void;
   onSignOut: () => void;
   onOpenShortcuts: () => void;
+  onOpenHelp: () => void;
   onOpenCommandPalette: () => void;
   mobileNavOpen?: boolean;
 }
@@ -105,6 +106,7 @@ export function ApplicationSidebar({
   onToggleTheme,
   onSignOut,
   onOpenShortcuts,
+  onOpenHelp,
   onOpenCommandPalette,
   mobileNavOpen,
 }: Props) {
@@ -329,10 +331,18 @@ export function ApplicationSidebar({
             </button>
             <button
               className="hover:text-on-surface transition-colors p-0.5"
+              onClick={onOpenHelp}
+              title="Help &amp; FAQ"
+              aria-label="Open help and FAQ"
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+            </button>
+            <button
+              className="hover:text-on-surface transition-colors p-0.5"
               onClick={onOpenShortcuts}
               title="Keyboard shortcuts (?)"
             >
-              <span className="material-symbols-outlined text-[14px]">help</span>
+              <span className="material-symbols-outlined text-[14px]">keyboard</span>
             </button>
           </div>
         </div>

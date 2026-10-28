@@ -3,6 +3,7 @@ import type { Analysis, ChatMessage } from "../../../../shared/types";
 import { api } from "../../api";
 import Markdown from "../Markdown";
 import { ChatHistoryPanel } from "../chat/ChatHistoryPanel";
+import { markFirstChatDone } from "../onboarding/SetupChecklist";
 import { ConfirmationDialog } from "../ui";
 import { History } from "lucide-react";
 
@@ -152,6 +153,7 @@ export function AIAssistantView({ analysis, aiEnabled, initialPrompt, onOpenFile
           },
         ]);
         setHistoryKey((k) => k + 1);
+        markFirstChatDone(); // lights the onboarding milestone
       } catch (err) {
         // Keep the question visible and offer a retry; nothing is lost.
         setError(err instanceof Error ? err.message : String(err));
