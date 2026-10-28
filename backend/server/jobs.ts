@@ -15,6 +15,18 @@ const jobs = new Map<string, Job>();
 const jobOwners = new Map<string, number>();
 const MAX_JOBS = 50;
 
+// Wall-clock cap on any single analysis. A well-behaved repository finishes
+// well inside it; hitting it means the pipeline crashed or hung without
+// reaching failJob, and the client should get an actionable answer instead of
+// "running" forever. Tick-tock starts at job creation.
+const JOB_TIMEOUT_MS = 15 * 60_000;
+
+function jobStartedAt(id: string): number {
+  // Job ids embed Date.now().toString(36) as their second segment.
+  const ms = parseInt(id.split("-")[1] ?? "", 36);
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
 /** What the pipeline hands to the engine so it can report progress. */
 export interface ProgressReporter {
   stage(id: StageId, detail?: string, counters?: Partial<JobCounters>): void;
@@ -108,6 +120,21 @@ export function failJob(job: Job, err: unknown): void {
   job.message = "Analysis failed.";
 }
 
+/**
+ * Fail any still-"running" job that has exceeded the wall-clock cap. Called on
+ * every job read so the timeout applies even though nothing else ticks in the
+ * background (serverless-style behavior — no daemon needed).
+ * Failed jobs stay in the map as normal settled entries and age out like any
+ * other job, so the owner sees the error rather than an id that vanished.
+ */
+export function reapExpiredJobs(): void {
+  const now = Date.now();
+  for (const job of jobs.values()) {
+    if (job.status === "running" && now - jobStartedAt(job.id) > JOB_TIMEOUT_MS) {
+      failJob(job, new Error(`Analysis exceeded the ${Math.round(JOB_TIMEOUT_MS / 60_000)}-minute limit and was stopped. Please try it again.`));
+    }
+  }
+}
 
 /**
  * Fetch a job only when it belongs to `ownerUserId`. An id from another account
@@ -115,5 +142,6 @@ export function failJob(job: Job, err: unknown): void {
  */
 export function getOwnedJob(ownerUserId: number, id: string): Job | undefined {
   if (jobOwners.get(id) !== ownerUserId) return undefined;
+  reapExpiredJobs();
   return jobs.get(id);
 }
