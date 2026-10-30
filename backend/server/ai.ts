@@ -204,7 +204,7 @@ const FREE_FALLBACK_MODELS = [
   "poolside/laguna-s-2.1:free",
   "cohere/north-mini-code:free",
   "google/gemma-4-31b-it:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
 ];
 
 async function attemptModel(
