@@ -68,7 +68,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(API_BASE + url, { ...init, credentials: "include" });
   } catch {
-    throw new Error("Cannot reach the Atlas API. Check that the API server is running (locally: `npm run dev`).");
+    // Network-level failure (offline, DNS, connection refused). Users get a
+    // calm product voice, never a developer's question about ports.
+    throw new Error("Atlas is temporarily unreachable. Please try again in a moment.");
+  }
+  // The API always answers JSON. Anything else (Render's "Service Suspended"
+  // page, a 502/503 through a proxy) means the backend is not healthy right
+  // now, so say exactly that instead of showing raw HTML leftovers.
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    throw new Error("Atlas is briefly down for maintenance. Please check back shortly.");
   }
   const json = (await res.json().catch(() => ({}))) as T | ApiError;
   if (!res.ok) {
